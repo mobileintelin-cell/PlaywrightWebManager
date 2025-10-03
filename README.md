@@ -1,0 +1,2 @@
+# PlaywrightWebManager
+Playwright Web Manager
