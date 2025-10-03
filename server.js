@@ -619,7 +619,7 @@ app.get('/api/projects/:projectName/tests', async (req, res) => {
 app.post('/api/projects/:projectName/run-tests', async (req, res) => {
   try {
     const { projectName } = req.params;
-    const { selectedTestFiles, username, password, websiteUrl, environment } = req.body;
+    const { selectedTestFiles, username, password, websiteUrl, environment, testExecutionOrder } = req.body;
     
     const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
     
@@ -689,11 +689,20 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       '--reporter=json'
     ];
     
-    // Add specific test files if selected
+    // Add specific test files or individual test cases if selected
     if (selectedTestFiles.length > 0) {
-      selectedTestFiles.forEach(file => {
-        playwrightArgs.push(path.join('tests', file));
-      });
+      if (testExecutionOrder && testExecutionOrder.length > 0) {
+        // Execute individual test cases in order
+        testExecutionOrder.forEach(testCase => {
+          const [fileName, testName] = testCase.split(':');
+          playwrightArgs.push(`--grep="${testName}"`, path.join('tests', fileName));
+        });
+      } else {
+        // Execute entire test files
+        selectedTestFiles.forEach(file => {
+          playwrightArgs.push(path.join('tests', file));
+        });
+      }
     }
     
     console.log(`Running Playwright tests in ${projectPath}`);
@@ -1164,6 +1173,46 @@ app.delete('/api/test-status/all', async (req, res) => {
     console.error('Error clearing all cached test statuses:', error);
     res.status(500).json({ 
       error: 'Failed to clear all cached test statuses',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to start Playwright report server
+app.post('/api/projects/:projectName/start-report', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
+    
+    // Check if project exists
+    try {
+      await fs.access(projectPath);
+    } catch (error) {
+      return res.status(404).json({ 
+        error: 'Project not found',
+        message: `Project "${projectName}" does not exist`
+      });
+    }
+    
+    // Start the Playwright report server
+    const reportProcess = spawn('npx', ['playwright', 'show-report'], {
+      cwd: projectPath,
+      detached: true,
+      stdio: 'ignore'
+    });
+    
+    reportProcess.unref();
+    
+    res.json({
+      success: true,
+      message: 'Playwright report server started',
+      url: 'http://localhost:9323'
+    });
+    
+  } catch (error) {
+    console.error('Error starting report server:', error);
+    res.status(500).json({ 
+      error: 'Failed to start report server',
       message: error.message 
     });
   }

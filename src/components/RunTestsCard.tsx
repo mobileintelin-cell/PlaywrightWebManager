@@ -22,6 +22,7 @@ export interface TestRunConfig {
   password: string;
   websiteUrl: string;
   environment: string;
+  testExecutionOrder?: string[];
 }
 
 export function RunTestsCard({ onRunTests, isRunning, testFiles }: RunTestsCardProps) {

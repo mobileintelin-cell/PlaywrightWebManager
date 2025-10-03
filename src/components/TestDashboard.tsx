@@ -1,10 +1,30 @@
 import { useState, useEffect } from 'react';
 import { Button } from "./ui/button";
+import { Checkbox } from "./ui/checkbox";
 import { StatusPill } from "./StatusPill";
 import { RunTestsCard, TestRunConfig } from "./RunTestsCard";
 import { QuickActionsCard } from "./QuickActionsCard";
 import { LiveLogsCard } from "./LiveLogsCard";
-import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock } from "lucide-react";
+import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square } from "lucide-react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import {
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface TestDashboardProps {
   selectedProject: string;
@@ -27,6 +47,15 @@ interface TestData {
   totalTests: number;
 }
 
+interface IndividualTestCase {
+  id: string;
+  fileName: string;
+  testName: string;
+  filePath: string;
+  selected: boolean;
+  order: number;
+}
+
 export function TestDashboard({ selectedProject, onBackToProjectSelection }: TestDashboardProps) {
   const [status, setStatus] = useState<'idle' | 'running'>('idle');
   const [logs, setLogs] = useState<string[]>([]);
@@ -36,6 +65,16 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
   const [testError, setTestError] = useState<string | null>(null);
   const [cachedTestStatus, setCachedTestStatus] = useState<any>(null);
   const [isLoadingCache, setIsLoadingCache] = useState(false);
+  const [individualTestCases, setIndividualTestCases] = useState<IndividualTestCase[]>([]);
+  const [showIndividualTests, setShowIndividualTests] = useState(false);
+
+  // Drag and drop sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
   // Fetch test data from API
   const fetchTestData = async () => {
@@ -103,9 +142,37 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
   const runTests = async (config: TestRunConfig) => {
     setStatus('running');
     
+    // Get selected individual test cases if in individual view, otherwise use file-based selection
+    let selectedTestFiles = config.selectedTestFiles;
+    let testExecutionOrder: string[] = [];
+    
+    if (showIndividualTests) {
+      const selectedTestCases = getSelectedTestCasesInOrder();
+      if (selectedTestCases.length === 0) {
+        addLog('No individual test cases selected. Please select at least one test case.');
+        setStatus('idle');
+        return;
+      }
+      
+      // Group selected test cases by file and create execution order
+      const testCasesByFile: Record<string, string[]> = {};
+      selectedTestCases.forEach(testCase => {
+        if (!testCasesByFile[testCase.fileName]) {
+          testCasesByFile[testCase.fileName] = [];
+        }
+        testCasesByFile[testCase.fileName].push(testCase.testName);
+      });
+      
+      selectedTestFiles = Object.keys(testCasesByFile);
+      testExecutionOrder = selectedTestCases.map(tc => `${tc.fileName}:${tc.testName}`);
+      
+      addLog(`Selected ${selectedTestCases.length} individual test cases from ${selectedTestFiles.length} files`);
+      addLog(`Execution order: ${testExecutionOrder.join(' → ')}`);
+    }
+    
     // Reset test results for selected files
     const initialResults: Record<string, 'passed' | 'failed' | 'pending'> = {};
-    config.selectedTestFiles.forEach(file => {
+    selectedTestFiles.forEach(file => {
       initialResults[file] = 'pending';
     });
     setTestResults(prev => ({ ...prev, ...initialResults }));
@@ -113,7 +180,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     addLog(`Starting test run for project: ${selectedProject}`);
     addLog(`Website URL: ${config.websiteUrl}`);
     addLog(`Username: ${config.username}`);
-    addLog(`Selected test files: ${config.selectedTestFiles.length}`);
+    addLog(`Selected test files: ${selectedTestFiles.length}`);
     
     try {
       // Initial setup steps
@@ -138,6 +205,8 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
         },
         body: JSON.stringify({
           ...config,
+          selectedTestFiles,
+          testExecutionOrder,
           environment: config.environment || 'local'
         })
       });
@@ -369,6 +438,138 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     fetchCachedTestStatus();
   };
 
+  // Convert test data to individual test cases
+  const convertToIndividualTestCases = (testData: TestData): IndividualTestCase[] => {
+    const individualTests: IndividualTestCase[] = [];
+    let order = 0;
+
+    testData.tests.forEach(testFile => {
+      testFile.testNames.forEach(testName => {
+        individualTests.push({
+          id: `${testFile.fileName}-${testName}`,
+          fileName: testFile.fileName,
+          testName: testName,
+          filePath: testFile.filePath,
+          selected: false,
+          order: order++
+        });
+      });
+    });
+
+    return individualTests;
+  };
+
+  // Handle drag end for reordering
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setIndividualTestCases((items) => {
+        const oldIndex = items.findIndex(item => item.id === active.id);
+        const newIndex = items.findIndex(item => item.id === over.id);
+        
+        const newItems = arrayMove(items, oldIndex, newIndex);
+        
+        // Update order numbers
+        return newItems.map((item, index) => ({
+          ...item,
+          order: index
+        }));
+      });
+    }
+  };
+
+  // Toggle individual test case selection
+  const toggleTestCaseSelection = (testId: string) => {
+    setIndividualTestCases(prev => 
+      prev.map(test => 
+        test.id === testId 
+          ? { ...test, selected: !test.selected }
+          : test
+      )
+    );
+  };
+
+  // Check/uncheck all test cases
+  const toggleAllTestCases = (selectAll: boolean) => {
+    setIndividualTestCases(prev => 
+      prev.map(test => ({ ...test, selected: selectAll }))
+    );
+  };
+
+  // Get selected test cases in order
+  const getSelectedTestCasesInOrder = (): IndividualTestCase[] => {
+    return individualTestCases
+      .filter(test => test.selected)
+      .sort((a, b) => a.order - b.order);
+  };
+
+  // Toggle individual test view
+  const toggleIndividualTestView = () => {
+    if (!showIndividualTests && testData) {
+      const individualTests = convertToIndividualTestCases(testData);
+      setIndividualTestCases(individualTests);
+    }
+    setShowIndividualTests(!showIndividualTests);
+  };
+
+  // Sortable Test Case Item Component
+  const SortableTestCaseItem = ({ testCase }: { testCase: IndividualTestCase }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: testCase.id });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : 1,
+    };
+
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className={`flex items-center gap-3 p-3 border rounded-lg bg-card hover:bg-muted/50 transition-colors ${
+          isDragging ? 'shadow-lg' : ''
+        }`}
+      >
+        <div
+          {...attributes}
+          {...listeners}
+          className="cursor-grab hover:cursor-grabbing p-1 text-muted-foreground hover:text-foreground"
+        >
+          <GripVertical className="w-4 h-4" />
+        </div>
+        
+        <Checkbox
+          checked={testCase.selected}
+          onCheckedChange={() => toggleTestCaseSelection(testCase.id)}
+          className="flex-shrink-0"
+        />
+        
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="font-medium text-sm truncate">
+              {testCase.testName}
+            </span>
+            <span className="text-xs text-muted-foreground bg-muted px-2 py-1 rounded">
+              {testCase.fileName}
+            </span>
+          </div>
+        </div>
+        
+        <div className="text-xs text-muted-foreground">
+          #{testCase.order + 1}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-background">
       {/* Header */}
@@ -460,6 +661,33 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
               <Trash2 className="w-4 h-4 mr-2" />
               Clear Cache
             </Button>
+            <Button 
+              variant="outline" 
+              onClick={async () => {
+                addLog('Starting Playwright report server...');
+                try {
+                  const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/start-report`, {
+                    method: 'POST'
+                  });
+                  
+                  if (response.ok) {
+                    const data = await response.json();
+                    addLog('Playwright report server started. Opening in browser...');
+                    setTimeout(() => {
+                      window.open(data.url, '_blank');
+                    }, 2000);
+                  } else {
+                    throw new Error('Failed to start report server');
+                  }
+                } catch (error) {
+                  addLog(`Error starting report server: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                }
+              }}
+              className="flex items-center"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Show Report
+            </Button>
             <div className="ml-auto flex items-center gap-4 text-sm text-muted-foreground">
               {testData && (
                 <div>
@@ -505,6 +733,97 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
             testResults={testResults}
           />
         </div>
+
+        {/* Individual Test Cases View */}
+        {testData && (
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-4">
+                <h2 className="text-xl font-semibold">Test Cases</h2>
+                <Button
+                  variant="outline"
+                  onClick={toggleIndividualTestView}
+                  className="flex items-center gap-2"
+                >
+                  {showIndividualTests ? 'Hide Individual Tests' : 'Show Individual Tests'}
+                </Button>
+              </div>
+              
+              {showIndividualTests && (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleAllTestCases(true)}
+                    className="flex items-center gap-1"
+                  >
+                    <CheckSquare className="w-4 h-4" />
+                    Check All
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => toggleAllTestCases(false)}
+                    className="flex items-center gap-1"
+                  >
+                    <Square className="w-4 h-4" />
+                    Uncheck All
+                  </Button>
+                </div>
+              )}
+            </div>
+
+            {showIndividualTests ? (
+              <div className="space-y-3">
+                <div className="text-sm text-muted-foreground mb-3">
+                  {individualTestCases.length} test cases • {individualTestCases.filter(t => t.selected).length} selected
+                </div>
+                
+                <DndContext
+                  sensors={sensors}
+                  collisionDetection={closestCenter}
+                  onDragEnd={handleDragEnd}
+                >
+                  <SortableContext
+                    items={individualTestCases.map(t => t.id)}
+                    strategy={verticalListSortingStrategy}
+                  >
+                    <div className="space-y-2">
+                      {individualTestCases.map((testCase) => (
+                        <SortableTestCaseItem key={testCase.id} testCase={testCase} />
+                      ))}
+                    </div>
+                  </SortableContext>
+                </DndContext>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {testData.tests.map((test, index) => (
+                  <div key={index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="font-medium text-sm truncate">{test.fileName}</h3>
+                      <StatusPill status={testResults[test.fileName] || 'pending'} />
+                    </div>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      {test.testCount} test{test.testCount !== 1 ? 's' : ''}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleOpenTestFile(test.fileName)}
+                        className="flex items-center gap-1"
+                      >
+                        <FileText className="w-3 h-3" />
+                        View
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         
         <LiveLogsCard logs={logs} />
       </main>
