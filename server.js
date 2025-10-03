@@ -14,6 +14,56 @@ app.use(express.json());
 // In-memory cache for test run status
 const testRunCache = new Map();
 
+// Environment configuration
+let environmentConfig = null;
+
+// Load environment configuration
+const loadEnvironmentConfig = async () => {
+  try {
+    const configPath = path.join(__dirname, 'environments.json');
+    const configData = await fs.readFile(configPath, 'utf8');
+    environmentConfig = JSON.parse(configData);
+    console.log('Environment configuration loaded successfully');
+  } catch (error) {
+    console.error('Error loading environment configuration:', error);
+    // Fallback configuration
+    environmentConfig = {
+      environments: {
+        custom: {
+          id: "custom",
+          name: "Custom",
+          description: "Custom environment with user-defined URL",
+          url: "",
+          defaultUrl: "http://localhost:3000",
+          requiresUrl: true,
+          color: "#6b7280",
+          icon: "settings"
+        }
+      },
+      defaultEnvironment: "custom",
+      errorContext: {
+        enabled: true,
+        captureScreenshots: true,
+        captureVideos: true,
+        captureTraces: true,
+        maxRetries: 2,
+        timeout: 30000
+      }
+    };
+  }
+};
+
+// Save environment configuration
+const saveEnvironmentConfig = async () => {
+  try {
+    const configPath = path.join(__dirname, 'environments.json');
+    await fs.writeFile(configPath, JSON.stringify(environmentConfig, null, 2));
+    console.log('Environment configuration saved successfully');
+  } catch (error) {
+    console.error('Error saving environment configuration:', error);
+  }
+};
+
 // Cache management functions
 const cacheTestRun = (projectName, testResults) => {
   const cacheKey = `test_run_${projectName}`;
@@ -615,11 +665,130 @@ app.get('/api/projects/:projectName/tests', async (req, res) => {
   }
 });
 
+// Simple test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Server is working', timestamp: new Date().toISOString() });
+});
+
+// API endpoint to test browser launch
+app.post('/api/test-browser', async (req, res) => {
+  try {
+    console.log('Test browser endpoint called');
+    const { runWithUI } = req.body;
+    console.log('runWithUI received:', runWithUI);
+    
+    const testScript = `
+const { chromium } = require('@playwright/test');
+
+(async () => {
+  try {
+    console.log('Launching browser with headless: ${!runWithUI}');
+    const browser = await chromium.launch({ 
+      headless: ${!runWithUI},
+      slowMo: 1000
+    });
+    const page = await browser.newPage();
+    await page.goto('https://example.com');
+    console.log('Browser launched successfully');
+    await page.waitForTimeout(3000);
+    await browser.close();
+    console.log('Browser closed');
+    process.exit(0);
+  } catch (error) {
+    console.error('Browser test error:', error.message);
+    process.exit(1);
+  }
+})();
+`;
+    
+    const fs = require('fs');
+    const path = require('path');
+    const testFile = path.join(__dirname, 'test-browser.js');
+    
+    console.log('Writing test file to:', testFile);
+    fs.writeFileSync(testFile, testScript);
+    
+    console.log('=== EXECUTING BROWSER TEST COMMAND ===');
+    console.log(`Full command: node ${testFile}`);
+    console.log(`Environment variables:`, {
+      DISPLAY: process.env.DISPLAY || ':0'
+    });
+    console.log('=====================================');
+    
+    const { spawn } = require('child_process');
+    const childProcess = spawn('node', [testFile], {
+      env: {
+        ...process.env,
+        DISPLAY: process.env.DISPLAY || ':0'
+      }
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    childProcess.stdout.on('data', (data) => {
+      const dataStr = data.toString();
+      output += dataStr;
+      console.log('Browser test stdout:', dataStr);
+    });
+    
+    childProcess.stderr.on('data', (data) => {
+      const dataStr = data.toString();
+      errorOutput += dataStr;
+      console.log('Browser test stderr:', dataStr);
+    });
+    
+    childProcess.on('close', (code) => {
+      console.log('Browser test process closed with code:', code);
+      try {
+        // Clean up
+        if (fs.existsSync(testFile)) {
+          fs.unlinkSync(testFile);
+        }
+        
+        res.json({ 
+          success: code === 0, 
+          output: output,
+          error: errorOutput,
+          code: code
+        });
+      } catch (cleanupError) {
+        console.error('Cleanup error:', cleanupError);
+        res.json({ 
+          success: code === 0, 
+          output: output,
+          error: errorOutput,
+          code: code,
+          cleanupError: cleanupError.message
+        });
+      }
+    });
+    
+    childProcess.on('error', (error) => {
+      console.error('Process spawn error:', error);
+      res.status(500).json({ 
+        error: 'Failed to spawn browser test process',
+        message: error.message 
+      });
+    });
+    
+  } catch (error) {
+    console.error('Test browser endpoint error:', error);
+    res.status(500).json({ 
+      error: 'Test browser endpoint error',
+      message: error.message 
+    });
+  }
+});
+
 // API endpoint to run tests
 app.post('/api/projects/:projectName/run-tests', async (req, res) => {
   try {
     const { projectName } = req.params;
-    const { selectedTestFiles, username, password, websiteUrl, environment, testExecutionOrder } = req.body;
+    const { selectedTestFiles, username, password, websiteUrl, environment, testExecutionOrder, runWithUI: rawRunWithUI } = req.body;
+    
+    // Ensure runWithUI is a boolean
+    const runWithUI = rawRunWithUI === true || rawRunWithUI === 'true';
     
     const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
     
@@ -648,19 +817,33 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       });
     }
     
+    // Load environment configuration if not already loaded
+    if (!environmentConfig) {
+      await loadEnvironmentConfig();
+    }
+    
     // Determine the project configuration based on environment
-    let playwrightProject = 'local';
+    let playwrightProject = 'chromium'; // Default to chromium instead of local
     let finalUrl = websiteUrl;
     
-    if (environment === 'staging') {
-      playwrightProject = 'staging';
-      finalUrl = websiteUrl; // Use the provided staging URL
-    } else if (environment === 'production') {
-      playwrightProject = 'production';
-      finalUrl = websiteUrl; // Use the provided production URL
+    // Get environment configuration
+    const envConfig = environmentConfig.environments[environment];
+    if (envConfig) {
+      // Use environment-specific URL if available, otherwise use provided URL
+      finalUrl = envConfig.url || websiteUrl;
+      // Map environment names to valid Playwright project names
+      if (environment === 'local') {
+        playwrightProject = 'chromium';
+      } else if (environment === 'staging') {
+        playwrightProject = 'firefox';
+      } else if (environment === 'production') {
+        playwrightProject = 'webkit';
+      } else {
+        playwrightProject = 'chromium'; // Default fallback
+      }
     } else {
-      // For local or custom, use the provided URL
-      playwrightProject = 'local';
+      // Fallback for unknown environments
+      playwrightProject = 'chromium';
       finalUrl = websiteUrl;
     }
     
@@ -672,6 +855,17 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       PASSWORD: password || '',
       BASE_URL: finalUrl
     };
+    
+    // Add GUI-specific environment variables for headed mode
+    if (runWithUI) {
+      env.DISPLAY = process.env.DISPLAY || ':0';
+      env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH || '0';
+      // Force browser to run in headed mode
+      env.PWDEBUG = '1';
+      // Ensure no headless mode is forced
+      delete env.CI;
+      delete env.HEADLESS;
+    }
     
     // Create test results object
     const testResults = {};
@@ -688,6 +882,16 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       `--project=${playwrightProject}`,
       '--reporter=json'
     ];
+    
+    // Add headed mode if runWithUI is enabled
+    if (runWithUI) {
+      playwrightArgs.push('--headed');
+      // Add additional flags to ensure browser visibility
+      playwrightArgs.push('--timeout=0');
+      playwrightArgs.push('--workers=1');
+      // Try alternative approach - set headless to false via environment
+      env.PLAYWRIGHT_HEADLESS = 'false';
+    }
     
     // Add specific test files or individual test cases if selected
     if (selectedTestFiles.length > 0) {
@@ -708,13 +912,52 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     console.log(`Running Playwright tests in ${projectPath}`);
     console.log(`Command: npx playwright ${playwrightArgs.join(' ')}`);
     console.log(`Environment: LOCAL=${env.LOCAL}, USERNAME=${env.USERNAME}`);
+    console.log(`UI Mode: ${runWithUI ? 'Headed (browser visible)' : 'Headless (no browser UI)'}`);
+    console.log(`Display: ${env.DISPLAY}, Playwright Browsers Path: ${env.PLAYWRIGHT_BROWSERS_PATH}`);
+    console.log(`runWithUI value: ${runWithUI} (type: ${typeof runWithUI})`);
+    console.log(`Platform: ${process.platform}, Process UID: ${process.getuid ? process.getuid() : 'N/A'}`);
+    console.log(`Environment variables for headed mode:`, runWithUI ? {
+      DISPLAY: env.DISPLAY,
+      PWDEBUG: env.PWDEBUG,
+      CI: env.CI,
+      HEADLESS: env.HEADLESS
+    } : 'N/A');
+    
+    // Log the exact Playwright command being executed
+    console.log('=== EXECUTING PLAYWRIGHT COMMAND ===');
+    console.log(`Full command: npx playwright ${playwrightArgs.join(' ')}`);
+    console.log(`Working directory: ${projectPath}`);
+    console.log(`Environment variables:`, {
+      LOCAL: env.LOCAL,
+      USERNAME: env.USERNAME ? '***' : 'not set',
+      PASSWORD: env.PASSWORD ? '***' : 'not set',
+      BASE_URL: env.BASE_URL,
+      DISPLAY: env.DISPLAY,
+      PLAYWRIGHT_BROWSERS_PATH: env.PLAYWRIGHT_BROWSERS_PATH,
+      PWDEBUG: env.PWDEBUG,
+      PLAYWRIGHT_HEADLESS: env.PLAYWRIGHT_HEADLESS
+    });
+    console.log('=====================================');
     
     // Execute Playwright tests
-    const playwrightProcess = spawn('npx', ['playwright', ...playwrightArgs], {
+    const spawnOptions = {
       cwd: projectPath,
       env: env,
       stdio: ['pipe', 'pipe', 'pipe']
-    });
+    };
+    
+    // For headed mode, ensure the process can access the display
+    if (runWithUI) {
+      spawnOptions.detached = false;
+      spawnOptions.shell = false;
+      // On Unix-like systems, ensure the process can access the display
+      if (process.platform !== 'win32') {
+        spawnOptions.uid = process.getuid();
+        spawnOptions.gid = process.getgid();
+      }
+    }
+    
+    const playwrightProcess = spawn('npx', ['playwright', ...playwrightArgs], spawnOptions);
     
     let stdout = '';
     let stderr = '';
@@ -726,8 +969,14 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     });
     
     playwrightProcess.stderr.on('data', (data) => {
-      stderr += data.toString();
+      const errorData = data.toString();
+      stderr += errorData;
       hasError = true;
+      
+      // Log browser launch errors specifically
+      if (runWithUI && (errorData.includes('browser') || errorData.includes('display') || errorData.includes('X11'))) {
+        console.log('Browser launch error (headed mode):', errorData);
+      }
     });
     
     // Handle process completion
@@ -1195,6 +1444,11 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
     }
     
     // Start the Playwright report server
+    console.log('=== EXECUTING PLAYWRIGHT REPORT COMMAND ===');
+    console.log(`Full command: npx playwright show-report`);
+    console.log(`Working directory: ${projectPath}`);
+    console.log('==========================================');
+    
     const reportProcess = spawn('npx', ['playwright', 'show-report'], {
       cwd: projectPath,
       detached: true,
@@ -1218,12 +1472,162 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
   }
 });
 
+// API endpoint to get environment configuration
+app.get('/api/environments', async (req, res) => {
+  try {
+    if (!environmentConfig) {
+      await loadEnvironmentConfig();
+    }
+    
+    res.json({
+      success: true,
+      environments: environmentConfig.environments,
+      defaultEnvironment: environmentConfig.defaultEnvironment,
+      errorContext: environmentConfig.errorContext
+    });
+    
+  } catch (error) {
+    console.error('Error getting environment configuration:', error);
+    res.status(500).json({ 
+      error: 'Failed to get environment configuration',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to update environment configuration
+app.put('/api/environments', async (req, res) => {
+  try {
+    const { environments, defaultEnvironment, errorContext } = req.body;
+    
+    if (!environmentConfig) {
+      await loadEnvironmentConfig();
+    }
+    
+    // Update environment configuration
+    if (environments) {
+      environmentConfig.environments = environments;
+    }
+    if (defaultEnvironment) {
+      environmentConfig.defaultEnvironment = defaultEnvironment;
+    }
+    if (errorContext) {
+      environmentConfig.errorContext = { ...environmentConfig.errorContext, ...errorContext };
+    }
+    
+    // Save to file
+    await saveEnvironmentConfig();
+    
+    res.json({
+      success: true,
+      message: 'Environment configuration updated successfully',
+      environments: environmentConfig.environments,
+      defaultEnvironment: environmentConfig.defaultEnvironment,
+      errorContext: environmentConfig.errorContext
+    });
+    
+  } catch (error) {
+    console.error('Error updating environment configuration:', error);
+    res.status(500).json({ 
+      error: 'Failed to update environment configuration',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to get specific environment
+app.get('/api/environments/:envId', async (req, res) => {
+  try {
+    const { envId } = req.params;
+    
+    if (!environmentConfig) {
+      await loadEnvironmentConfig();
+    }
+    
+    const environment = environmentConfig.environments[envId];
+    
+    if (!environment) {
+      return res.status(404).json({
+        error: 'Environment not found',
+        message: `Environment "${envId}" does not exist`
+      });
+    }
+    
+    res.json({
+      success: true,
+      environment: {
+        id: envId,
+        ...environment
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error getting environment:', error);
+    res.status(500).json({ 
+      error: 'Failed to get environment',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to update specific environment
+app.put('/api/environments/:envId', async (req, res) => {
+  try {
+    const { envId } = req.params;
+    const { name, description, url, defaultUrl, requiresUrl, color } = req.body;
+    
+    if (!environmentConfig) {
+      await loadEnvironmentConfig();
+    }
+    
+    if (!environmentConfig.environments[envId]) {
+      return res.status(404).json({
+        error: 'Environment not found',
+        message: `Environment "${envId}" does not exist`
+      });
+    }
+    
+    // Update environment
+    environmentConfig.environments[envId] = {
+      ...environmentConfig.environments[envId],
+      ...(name && { name }),
+      ...(description && { description }),
+      ...(url !== undefined && { url }),
+      ...(defaultUrl && { defaultUrl }),
+      ...(requiresUrl !== undefined && { requiresUrl }),
+      ...(color && { color })
+    };
+    
+    // Save to file
+    await saveEnvironmentConfig();
+    
+    res.json({
+      success: true,
+      message: `Environment "${envId}" updated successfully`,
+      environment: {
+        id: envId,
+        ...environmentConfig.environments[envId]
+      }
+    });
+    
+  } catch (error) {
+    console.error('Error updating environment:', error);
+    res.status(500).json({ 
+      error: 'Failed to update environment',
+      message: error.message 
+    });
+  }
+});
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Playwright projects path: ${PLAYWRIGHT_PROJECTS_PATH}`);
+  
+  // Load environment configuration on startup
+  await loadEnvironmentConfig();
 });

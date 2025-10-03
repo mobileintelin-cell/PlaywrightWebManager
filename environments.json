@@ -1,0 +1,63 @@
+{
+  "environments": {
+    "custom": {
+      "id": "custom",
+      "name": "Custom",
+      "description": "Custom environment with user-defined URL",
+      "url": "http://localhost:3000/",
+      "defaultUrl": "http://localhost:3000",
+      "requiresUrl": true,
+      "color": "#6b7280",
+      "icon": "settings"
+    },
+    "dev": {
+      "id": "dev",
+      "name": "Development",
+      "description": "Development environment",
+      "url": "http://localhost:3000",
+      "defaultUrl": "http://localhost:3000",
+      "requiresUrl": false,
+      "color": "#10b981",
+      "icon": "code"
+    },
+    "staging": {
+      "id": "staging",
+      "name": "Staging",
+      "description": "Staging environment for testing",
+      "url": "https://staging.example.com",
+      "defaultUrl": "https://staging.example.com",
+      "requiresUrl": false,
+      "color": "#f59e0b",
+      "icon": "test-tube"
+    },
+    "uat": {
+      "id": "uat",
+      "name": "UAT",
+      "description": "User Acceptance Testing environment",
+      "url": "https://uat.example.com",
+      "defaultUrl": "https://uat.example.com",
+      "requiresUrl": false,
+      "color": "#8b5cf6",
+      "icon": "users"
+    },
+    "production": {
+      "id": "production",
+      "name": "Production",
+      "description": "Production environment",
+      "url": "https://example.com",
+      "defaultUrl": "https://example.com",
+      "requiresUrl": false,
+      "color": "#ef4444",
+      "icon": "globe"
+    }
+  },
+  "defaultEnvironment": "custom",
+  "errorContext": {
+    "enabled": true,
+    "captureScreenshots": true,
+    "captureVideos": true,
+    "captureTraces": true,
+    "maxRetries": 2,
+    "timeout": 30000
+  }
+}

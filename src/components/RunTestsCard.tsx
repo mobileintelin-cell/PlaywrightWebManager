@@ -1,51 +1,329 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Checkbox } from "./ui/checkbox";
+import { Switch } from "./ui/switch";
 import { ScrollArea } from "./ui/scroll-area";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { Play, Globe, User, Lock, FileText, HelpCircle, Download } from "lucide-react";
+import { Play, Globe, User, Lock, FileText, HelpCircle, Download, Settings, Code, TestTube, Users } from "lucide-react";
+
+interface IndividualTestCase {
+  id: string;
+  fileName: string;
+  testName: string;
+  filePath: string;
+  selected: boolean;
+  order: number;
+}
 
 interface RunTestsCardProps {
   onRunTests: (config: TestRunConfig) => void;
   isRunning: boolean;
   testFiles: string[];
+  individualTestCases?: IndividualTestCase[];
+  onIndividualTestCaseToggle?: (testId: string) => void;
+  onToggleAllIndividualTests?: (selectAll: boolean) => void;
 }
 
 export interface TestRunConfig {
   selectedTestFiles: string[];
+  selectedIndividualTests?: IndividualTestCase[];
   username: string;
   password: string;
   websiteUrl: string;
   environment: string;
   testExecutionOrder?: string[];
+  runWithUI?: boolean;
+  runMode?: 'files' | 'individual';
 }
 
-export function RunTestsCard({ onRunTests, isRunning, testFiles }: RunTestsCardProps) {
-  const [selectedTestFiles, setSelectedTestFiles] = useState<string[]>([]);
+interface Environment {
+  id: string;
+  name: string;
+  description: string;
+  url: string;
+  defaultUrl: string;
+  requiresUrl: boolean;
+  color: string;
+  icon: string;
+}
+
+interface EnvironmentConfig {
+  environments: Record<string, Environment>;
+  defaultEnvironment: string;
+  errorContext: {
+    enabled: boolean;
+    captureScreenshots: boolean;
+    captureVideos: boolean;
+    captureTraces: boolean;
+    maxRetries: number;
+    timeout: number;
+  };
+}
+
+export function RunTestsCard({ 
+  onRunTests, 
+  isRunning, 
+  testFiles, 
+  individualTestCases = [], 
+  onIndividualTestCaseToggle,
+  onToggleAllIndividualTests 
+}: RunTestsCardProps) {
+  const [selectedTestFiles, setSelectedTestFiles] = useState([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const [environment, setEnvironment] = useState('');
+  const [environment, setEnvironment] = useState('custom');
   const [showHelpDialog, setShowHelpDialog] = useState(false);
   const [customUrl, setCustomUrl] = useState('');
+  const [environmentConfig, setEnvironmentConfig] = useState(null);
+  const [isLoadingEnvironments, setIsLoadingEnvironments] = useState(false);
+  const [runWithUI, setRunWithUI] = useState(false);
+  const [testMode, setTestMode] = useState('files');
 
+  // Debug: Log when individual test cases change
+  useEffect(() => {
+    console.log(`RunTestsCard: ${individualTestCases.length} individual test cases available`);
+  }, [individualTestCases]);
 
-  const environmentUrls = {
-    dev: 'https://dev.example.com',
-    staging: 'https://staging.example.com',
-    uat: 'https://uat.example.com',
-    production: 'https://example.com'
+  // Load cached values on component mount
+  useEffect(() => {
+    try {
+      const cachedUrl = localStorage.getItem('playwright-custom-url');
+      const cachedUsername = localStorage.getItem('playwright-username');
+      const cachedPassword = localStorage.getItem('playwright-password');
+      const cachedEnvironment = localStorage.getItem('playwright-environment');
+      const cachedRunWithUI = localStorage.getItem('playwright-run-with-ui');
+      
+      if (cachedUrl) {
+        setCustomUrl(cachedUrl);
+      }
+      if (cachedUsername) {
+        setUsername(cachedUsername);
+      }
+      if (cachedPassword) {
+        setPassword(cachedPassword);
+      }
+      if (cachedEnvironment) {
+        setEnvironment(cachedEnvironment);
+      }
+      if (cachedRunWithUI) {
+        setRunWithUI(cachedRunWithUI === 'true');
+      }
+    } catch (error) {
+      console.error('Error loading cached values:', error);
+    }
+  }, []);
+
+  // Cache custom URL whenever it changes
+  const handleCustomUrlChange = (value: string) => {
+    setCustomUrl(value);
+    try {
+      localStorage.setItem('playwright-custom-url', value);
+    } catch (error) {
+      console.error('Error caching custom URL:', error);
+    }
   };
 
+  // Cache username whenever it changes
+  const handleUsernameChange = (value: string) => {
+    setUsername(value);
+    try {
+      localStorage.setItem('playwright-username', value);
+    } catch (error) {
+      console.error('Error caching username:', error);
+    }
+  };
+
+  // Cache password whenever it changes
+  const handlePasswordChange = (value: string) => {
+    setPassword(value);
+    try {
+      localStorage.setItem('playwright-password', value);
+    } catch (error) {
+      console.error('Error caching password:', error);
+    }
+  };
+
+  // Cache environment whenever it changes
+  const handleEnvironmentChange = (value: string) => {
+    setEnvironment(value);
+    try {
+      localStorage.setItem('playwright-environment', value);
+    } catch (error) {
+      console.error('Error caching environment:', error);
+    }
+  };
+
+  // Cache runWithUI whenever it changes
+  const handleRunWithUIChange = (value: boolean) => {
+    setRunWithUI(value);
+    try {
+      localStorage.setItem('playwright-run-with-ui', value.toString());
+    } catch (error) {
+      console.error('Error caching runWithUI:', error);
+    }
+  };
+
+  // Fetch environment configuration
+  const fetchEnvironmentConfig = async () => {
+    setIsLoadingEnvironments(true);
+    try {
+      const response = await fetch('http://localhost:3001/api/environments');
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Environment config loaded:', data);
+        setEnvironmentConfig(data);
+        if (data.defaultEnvironment) {
+          setEnvironment(data.defaultEnvironment);
+        }
+      } else {
+        console.error('Failed to fetch environment config:', response.status, response.statusText);
+        // Set fallback configuration
+        setEnvironmentConfig({
+          environments: {
+            custom: {
+              id: "custom",
+              name: "Custom",
+              description: "Custom environment with user-defined URL",
+              url: "",
+              defaultUrl: "http://localhost:3000",
+              requiresUrl: true,
+              color: "#6b7280",
+              icon: "settings"
+            }
+          },
+          defaultEnvironment: "custom",
+          errorContext: {
+            enabled: true,
+            captureScreenshots: true,
+            captureVideos: true,
+            captureTraces: true,
+            maxRetries: 2,
+            timeout: 30000
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error fetching environment config:', error);
+      // Set fallback configuration
+      setEnvironmentConfig({
+        environments: {
+          custom: {
+            id: "custom",
+            name: "Custom",
+            description: "Custom environment with user-defined URL",
+            url: "",
+            defaultUrl: "http://localhost:3000",
+            requiresUrl: true,
+            color: "#6b7280",
+            icon: "settings"
+          }
+        },
+        defaultEnvironment: "custom",
+        errorContext: {
+          enabled: true,
+          captureScreenshots: true,
+          captureVideos: true,
+          captureTraces: true,
+          maxRetries: 2,
+          timeout: 30000
+        }
+      });
+    } finally {
+      setIsLoadingEnvironments(false);
+    }
+  };
+
+  // Load environment configuration on component mount
+  useEffect(() => {
+    fetchEnvironmentConfig();
+  }, []);
+
+  // Log cached values when they change (for debugging)
+  useEffect(() => {
+    if (environmentConfig) {
+      logCachedValues();
+    }
+  }, [customUrl, username, password, environment, runWithUI, environmentConfig]);
+
+  // Reset environment if it becomes invalid
+  useEffect(() => {
+    if (environmentConfig && !environmentConfig.environments?.[environment] && environment !== 'custom') {
+      console.warn('Current environment is invalid, resetting to custom');
+      setEnvironment('custom');
+    }
+  }, [environmentConfig, environment]);
+
   const getWebsiteUrl = () => {
-    if (environment === 'custom') {
+    try {
+      if (!environmentConfig) return customUrl;
+      
+      const env = environmentConfig.environments?.[environment];
+      if (!env) return customUrl;
+      
+      if (env.requiresUrl) {
+        return customUrl;
+      }
+      
+      return env.url || customUrl;
+    } catch (error) {
+      console.error('Error in getWebsiteUrl:', error);
       return customUrl;
     }
-    return environmentUrls[environment as keyof typeof environmentUrls] || '';
+  };
+
+  // Utility function to clear all cached values
+  const clearCache = () => {
+    try {
+      localStorage.removeItem('playwright-custom-url');
+      localStorage.removeItem('playwright-username');
+      localStorage.removeItem('playwright-password');
+      localStorage.removeItem('playwright-environment');
+      localStorage.removeItem('playwright-run-with-ui');
+      
+      // Reset to default values
+      setCustomUrl('');
+      setUsername('');
+      setPassword('');
+      setEnvironment('custom');
+      setRunWithUI(false);
+      
+      console.log('Cache cleared successfully');
+    } catch (error) {
+      console.error('Error clearing cache:', error);
+    }
+  };
+
+  // Debug function to log current cached values
+  const logCachedValues = () => {
+    try {
+      const cached = {
+        url: localStorage.getItem('playwright-custom-url'),
+        username: localStorage.getItem('playwright-username'),
+        password: localStorage.getItem('playwright-password'),
+        environment: localStorage.getItem('playwright-environment'),
+        runWithUI: localStorage.getItem('playwright-run-with-ui'),
+        currentWebsiteUrl: getWebsiteUrl()
+      };
+      console.log('Current cached values:', cached);
+    } catch (error) {
+      console.error('Error logging cached values:', error);
+    }
+  };
+
+  const getEnvironmentIcon = (iconName: string) => {
+    switch (iconName) {
+      case 'settings': return Settings;
+      case 'code': return Code;
+      case 'test-tube': return TestTube;
+      case 'users': return Users;
+      case 'globe': return Globe;
+      default: return Globe;
+    }
   };
 
   const downloadLinuxScript = () => {
@@ -160,12 +438,19 @@ pause
   };
 
   const handleRun = () => {
+    const selectedIndividualTests = individualTestCases.filter(test => test.selected);
+    
+    console.log('RunTestsCard: Sending runWithUI =', runWithUI, 'type:', typeof runWithUI);
+    
     onRunTests({
       selectedTestFiles,
+      selectedIndividualTests,
       username,
       password,
       websiteUrl: getWebsiteUrl(),
-      environment
+      environment,
+      runWithUI,
+      runMode: testMode
     });
   };
 
@@ -185,25 +470,60 @@ pause
               <Globe className="w-4 h-4" />
               Website URL
             </Label>
-            <Select value={environment} onValueChange={setEnvironment}>
+            <Select 
+              value={environmentConfig?.environments?.[environment] ? environment : 'custom'} 
+              onValueChange={(value) => {
+                try {
+                  console.log('Environment changed to:', value);
+                  // Validate that the environment exists in the config
+                  if (environmentConfig?.environments?.[value] || value === 'custom') {
+                    handleEnvironmentChange(value);
+                  } else {
+                    console.warn('Invalid environment selected:', value);
+                    handleEnvironmentChange('custom');
+                  }
+                } catch (error) {
+                  console.error('Error changing environment:', error);
+                  setEnvironment('custom');
+                }
+              }} 
+              disabled={isLoadingEnvironments}
+            >
               <SelectTrigger>
-                <SelectValue placeholder="Select environment" />
+                <SelectValue placeholder={isLoadingEnvironments ? "Loading environments..." : "Select environment"} />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="custom">Custom</SelectItem>
-                <SelectItem value="dev">Dev</SelectItem>
-                <SelectItem value="staging">Staging</SelectItem>
-                <SelectItem value="uat">UAT</SelectItem>
-                <SelectItem value="production">Production</SelectItem>
+                {environmentConfig?.environments ? Object.entries(environmentConfig.environments).map(([envId, env]: [string, any]) => {
+                  try {
+                    const IconComponent = getEnvironmentIcon(env.icon);
+                    return (
+                      <SelectItem key={envId} value={envId}>
+                        <div className="flex items-center gap-2">
+                          <IconComponent className="w-4 h-4" style={{ color: env.color }} />
+                          <span>{env.name}</span>
+                        </div>
+                      </SelectItem>
+                    );
+                  } catch (error) {
+                    console.error(`Error rendering environment ${envId}:`, error);
+                    return (
+                      <SelectItem key={envId} value={envId}>
+                        <span>{env.name || envId}</span>
+                      </SelectItem>
+                    );
+                  }
+                }) : (
+                  <SelectItem value="custom">Custom</SelectItem>
+                )}
               </SelectContent>
             </Select>
-            {environment === 'custom' && (
+            {environmentConfig?.environments?.[environment]?.requiresUrl && (
               <div className="mt-2 flex gap-2">
                 <Input
                   id="custom-url"
                   type="url"
                   value={customUrl}
-                  onChange={(e) => setCustomUrl(e.target.value)}
+                  onChange={(e) => handleCustomUrlChange(e.target.value)}
                   placeholder="https://example.com"
                   className="flex-1"
                 />
@@ -267,9 +587,9 @@ pause
                 </Dialog>
               </div>
             )}
-            {environment && environment !== 'custom' && (
+            {environment && environment !== 'custom' && environmentConfig?.environments?.[environment] && (
               <div className="text-sm text-muted-foreground mt-1">
-                {environmentUrls[environment as keyof typeof environmentUrls]}
+                {environmentConfig.environments[environment].url || environmentConfig.environments[environment].description}
               </div>
             )}
           </div>
@@ -282,7 +602,7 @@ pause
             <Input
               id="username"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={(e) => handleUsernameChange(e.target.value)}
               placeholder="Enter username"
             />
           </div>
@@ -296,28 +616,128 @@ pause
               id="password"
               type="password"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
+              onChange={(e) => handlePasswordChange(e.target.value)}
               placeholder="Enter password"
             />
           </div>
         </div>
 
-        {/* Test Files Section */}
-        <div className="space-y-2">
+        {/* Run Options Section */}
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label className="flex items-center gap-2">
-              <FileText className="w-4 h-4" />
-              Test Files ({selectedTestFiles.length}/{testFiles.length})
-            </Label>
+            <div className="space-y-1">
+              <Label className="text-sm font-medium">Run Options</Label>
+              <p className="text-xs text-muted-foreground">
+                {runWithUI ? 'Tests will run with browser UI visible' : 'Tests will run in headless mode (no browser UI)'}
+              </p>
+            </div>
+            <div className="flex items-center space-x-2">
+              <Label htmlFor="run-with-ui" className="text-sm">
+                Run with UI
+              </Label>
+              <Switch
+                id="run-with-ui"
+                checked={runWithUI}
+                onCheckedChange={handleRunWithUIChange}
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    // First test if server is responding
+                    console.log('Testing server connection...');
+                    const testResponse = await fetch('http://localhost:3001/api/test');
+                    if (!testResponse.ok) {
+                      alert(`Server not responding (${testResponse.status})`);
+                      return;
+                    }
+                    const testResult = await testResponse.json();
+                    console.log('Server test result:', testResult);
+                    
+                    // Now test browser
+                    console.log('Testing browser with runWithUI:', runWithUI);
+                    const response = await fetch('http://localhost:3001/api/test-browser', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ runWithUI })
+                    });
+                    
+                    console.log('Response status:', response.status);
+                    console.log('Response headers:', response.headers);
+                    
+                    if (!response.ok) {
+                      const errorText = await response.text();
+                      console.error('Response error:', errorText);
+                      alert(`Server error (${response.status}): ${errorText}`);
+                      return;
+                    }
+                    
+                    const result = await response.json();
+                    console.log('Browser test result:', result);
+                    
+                    const message = `Browser test ${result.success ? 'SUCCESS' : 'FAILED'}
+Output: ${result.output || 'No output'}
+Error: ${result.error || 'No errors'}
+Exit code: ${result.code}`;
+                    
+                    alert(message);
+                  } catch (error) {
+                    console.error('Browser test error:', error);
+                    alert(`Browser test error: ${error.message}`);
+                  }
+                }}
+                className="text-xs"
+              >
+                Test Browser
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        {/* Test Mode Toggle */}
+        <div className="space-y-2">
+          <Label className="text-sm font-medium">Test Selection Mode</Label>
+          <div className="flex gap-2">
             <Button
-              variant="outline"
+              variant={testMode === 'files' ? 'default' : 'outline'}
               size="sm"
-              onClick={handleSelectAll}
-              className="text-xs"
+              onClick={() => setTestMode('files')}
+              className="flex-1"
             >
-              {isAllSelected ? 'Deselect All' : 'Select All'}
+              <FileText className="w-4 h-4 mr-2" />
+              Test Files
+            </Button>
+            <Button
+              variant={testMode === 'individual' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setTestMode('individual')}
+              className="flex-1"
+              disabled={individualTestCases.length === 0}
+            >
+              <Play className="w-4 h-4 mr-2" />
+              Individual Tests
             </Button>
           </div>
+        </div>
+
+        {/* Test Files Section */}
+        {testMode === 'files' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <FileText className="w-4 h-4" />
+                Test Files ({selectedTestFiles.length}/{testFiles.length})
+              </Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAll}
+                className="text-xs"
+              >
+                {isAllSelected ? 'Deselect All' : 'Select All'}
+              </Button>
+            </div>
           
           <ScrollArea className="h-48 border rounded-md p-2">
             <div className="space-y-2">
@@ -338,15 +758,78 @@ pause
               ))}
             </div>
           </ScrollArea>
-        </div>
+          </div>
+        )}
+
+        {/* Individual Tests Section */}
+        {testMode === 'individual' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2">
+                <Play className="w-4 h-4" />
+                Individual Tests ({individualTestCases.filter(t => t.selected).length}/{individualTestCases.length})
+              </Label>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => onToggleAllIndividualTests?.(!individualTestCases.every(t => t.selected))}
+                className="text-xs"
+                disabled={individualTestCases.length === 0}
+              >
+                {individualTestCases.every(t => t.selected) ? 'Deselect All' : 'Select All'}
+              </Button>
+            </div>
+            
+            <ScrollArea className="h-48 border rounded-md p-2">
+              <div className="space-y-2">
+                {individualTestCases.length === 0 ? (
+                  <div className="text-sm text-muted-foreground text-center py-4">
+                    No individual tests available. Switch to "Test Files" mode or refresh the test data.
+                  </div>
+                ) : (
+                  individualTestCases.map((testCase) => (
+                    <div key={testCase.id} className="flex items-center space-x-2">
+                      <Checkbox
+                        id={testCase.id}
+                        checked={testCase.selected}
+                        onCheckedChange={() => onIndividualTestCaseToggle?.(testCase.id)}
+                      />
+                      <Label 
+                        htmlFor={testCase.id} 
+                        className="text-sm cursor-pointer flex-1 leading-relaxed"
+                      >
+                        <div className="flex flex-col">
+                          <span className="font-medium">{testCase.testName}</span>
+                          <span className="text-xs text-muted-foreground">{testCase.fileName}</span>
+                        </div>
+                      </Label>
+                    </div>
+                  ))
+                )}
+              </div>
+            </ScrollArea>
+          </div>
+        )}
         
         <Button 
           onClick={handleRun} 
-          disabled={isRunning || selectedTestFiles.length === 0 || !environment || (environment === 'custom' && !customUrl)}
+          disabled={
+            isRunning || 
+            !environment || 
+            (environment === 'custom' && !customUrl) ||
+            (testMode === 'files' && selectedTestFiles.length === 0) ||
+            (testMode === 'individual' && individualTestCases.filter(t => t.selected).length === 0)
+          }
           className="w-full"
         >
           <Play className="w-4 h-4 mr-2" />
-          {isRunning ? 'Running...' : `Run ${selectedTestFiles.length} Test${selectedTestFiles.length !== 1 ? 's' : ''}`}
+          {isRunning ? 'Running...' : (() => {
+            const count = testMode === 'files' 
+              ? selectedTestFiles.length 
+              : individualTestCases.filter(t => t.selected).length;
+            const type = testMode === 'files' ? 'File' : 'Test';
+            return `Run ${count} ${type}${count !== 1 ? 's' : ''}`;
+          })()}
         </Button>
         
         {isRunning && (
@@ -355,9 +838,15 @@ pause
           </p>
         )}
         
-        {selectedTestFiles.length === 0 && (
+        {testMode === 'files' && selectedTestFiles.length === 0 && (
           <p className="text-sm text-muted-foreground">
             Please select at least one test file to run.
+          </p>
+        )}
+        
+        {testMode === 'individual' && individualTestCases.filter(t => t.selected).length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Please select at least one individual test to run.
           </p>
         )}
         

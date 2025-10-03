@@ -1,11 +1,14 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from "./ui/button";
 import { Checkbox } from "./ui/checkbox";
 import { StatusPill } from "./StatusPill";
 import { RunTestsCard, TestRunConfig } from "./RunTestsCard";
 import { QuickActionsCard } from "./QuickActionsCard";
 import { LiveLogsCard } from "./LiveLogsCard";
-import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square } from "lucide-react";
+import { EnvironmentManager } from "./EnvironmentManager";
+import { NotificationSystem, useNotifications } from "./NotificationSystem";
+import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square, Settings, Play, MoreVertical, Menu } from "lucide-react";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "./ui/dropdown-menu";
 import {
   DndContext,
   closestCenter,
@@ -57,24 +60,22 @@ interface IndividualTestCase {
 }
 
 export function TestDashboard({ selectedProject, onBackToProjectSelection }: TestDashboardProps) {
-  const [status, setStatus] = useState<'idle' | 'running'>('idle');
-  const [logs, setLogs] = useState<string[]>([]);
-  const [testResults, setTestResults] = useState<Record<string, 'passed' | 'failed' | 'pending'>>({});
-  const [testData, setTestData] = useState<TestData | null>(null);
+  const [status, setStatus] = useState('idle');
+  const [logs, setLogs] = useState([]);
+  const [testResults, setTestResults] = useState({});
+  const [testData, setTestData] = useState(null);
   const [isLoadingTests, setIsLoadingTests] = useState(false);
-  const [testError, setTestError] = useState<string | null>(null);
-  const [cachedTestStatus, setCachedTestStatus] = useState<any>(null);
+  const [testError, setTestError] = useState(null);
+  const [cachedTestStatus, setCachedTestStatus] = useState(null);
   const [isLoadingCache, setIsLoadingCache] = useState(false);
-  const [individualTestCases, setIndividualTestCases] = useState<IndividualTestCase[]>([]);
-  const [showIndividualTests, setShowIndividualTests] = useState(false);
+  const [individualTestCases, setIndividualTestCases] = useState([]);
+  const [showEnvironmentManager, setShowEnvironmentManager] = useState(false);
+  const [showLiveLogs, setShowLiveLogs] = useState(true);
+  const [showQuickActions, setShowQuickActions] = useState(true);
+  
+  // Notification system
+  const { notifications, addNotification, removeNotification } = useNotifications();
 
-  // Drag and drop sensors
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, {
-      coordinateGetter: sortableKeyboardCoordinates,
-    })
-  );
 
   // Fetch test data from API
   const fetchTestData = async () => {
@@ -102,6 +103,15 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
 
   // Get test files for the current project
   const testFiles = testData?.tests.map(test => test.fileName) || [];
+
+  // Convert test data to individual test cases when test data changes
+  useEffect(() => {
+    if (testData) {
+      const individualTests = convertToIndividualTestCases(testData);
+      setIndividualTestCases(individualTests);
+      console.log(`Converted ${individualTests.length} individual test cases from test data`);
+    }
+  }, [testData]);
 
   const addLog = (message: string) => {
     setLogs(prev => [...prev, message]);
@@ -146,8 +156,8 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     let selectedTestFiles = config.selectedTestFiles;
     let testExecutionOrder: string[] = [];
     
-    if (showIndividualTests) {
-      const selectedTestCases = getSelectedTestCasesInOrder();
+    if (config.runMode === 'individual' && config.selectedIndividualTests) {
+      const selectedTestCases = config.selectedIndividualTests;
       if (selectedTestCases.length === 0) {
         addLog('No individual test cases selected. Please select at least one test case.');
         setStatus('idle');
@@ -168,6 +178,15 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
       
       addLog(`Selected ${selectedTestCases.length} individual test cases from ${selectedTestFiles.length} files`);
       addLog(`Execution order: ${testExecutionOrder.join(' → ')}`);
+    } else {
+      // File-based selection mode - use the selected test files from RunTestsCard
+      if (selectedTestFiles.length === 0) {
+        addLog('No test files selected. Please select at least one test file.');
+        setStatus('idle');
+        return;
+      }
+      
+      addLog(`Selected ${selectedTestFiles.length} test file(s): ${selectedTestFiles.join(', ')}`);
     }
     
     // Reset test results for selected files
@@ -182,33 +201,45 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     addLog(`Username: ${config.username}`);
     addLog(`Selected test files: ${selectedTestFiles.length}`);
     
+    // Show start notification
+    addNotification({
+      type: 'info',
+      title: 'Tests Starting',
+      message: `Running ${selectedTestFiles.length} test file${selectedTestFiles.length !== 1 ? 's' : ''}`,
+      duration: 3000
+    });
+    
     try {
-      // Initial setup steps
-      const setupSteps = [
-        'Setting up test environment...',
-        'Launching browser instance...',
-        `Navigating to ${config.websiteUrl}...`,
-        `Authenticating with username: ${config.username}...`,
-        'Loading selected test files...'
-      ];
+    // Initial setup steps
+    const setupSteps = [
+      'Setting up test environment...',
+      'Launching browser instance...',
+      `Navigating to ${config.websiteUrl}...`,
+      `Authenticating with username: ${config.username}...`,
+      'Loading selected test files...'
+    ];
 
-      for (let i = 0; i < setupSteps.length; i++) {
-        await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 300));
-        addLog(setupSteps[i]);
-      }
+    for (let i = 0; i < setupSteps.length; i++) {
+      await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 300));
+      addLog(setupSteps[i]);
+    }
 
       // Call the API to run tests
+      const requestBody = {
+        ...config,
+        selectedTestFiles,
+        testExecutionOrder,
+        environment: config.environment || 'local'
+      };
+      
+      console.log('TestDashboard: Sending request body:', JSON.stringify(requestBody, null, 2));
+      
       const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/run-tests`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          ...config,
-          selectedTestFiles,
-          testExecutionOrder,
-          environment: config.environment || 'local'
-        })
+        body: JSON.stringify(requestBody)
       });
 
       if (!response.ok) {
@@ -224,23 +255,66 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
         setTestResults(prev => ({ ...prev, [file]: status as 'passed' | 'failed' }));
       });
 
-      // Log individual test results
+      // Log individual test results and show notifications
       Object.entries(results.testResults).forEach(([file, status]) => {
         const icon = status === 'passed' ? '✓' : '✗';
         addLog(`Running ${file} ${icon}`);
+        
+        // Show notification for each test result
+        if (status === 'passed') {
+          addNotification({
+            type: 'success',
+            title: 'Test Passed',
+            message: `${file} completed successfully`,
+            duration: 3000
+          });
+        } else if (status === 'failed') {
+          addNotification({
+            type: 'error',
+            title: 'Test Failed',
+            message: `${file} failed to complete`,
+            duration: 5000
+          });
+        }
       });
 
-      // Final steps
-      await new Promise(resolve => setTimeout(resolve, 500));
-      addLog('Generating test report...');
-      await new Promise(resolve => setTimeout(resolve, 300));
-      addLog('Test run completed!');
+    // Final steps
+    await new Promise(resolve => setTimeout(resolve, 500));
+    addLog('Generating test report...');
+    await new Promise(resolve => setTimeout(resolve, 300));
+    addLog('Test run completed!');
       addLog(`Results: ${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped`);
       addLog(`Execution time: ${Math.round(results.executionTime / 1000)}s`);
+    
+    // Show summary notification
+    const totalTests = results.passed + results.failed + results.skipped;
+    if (results.failed === 0) {
+      addNotification({
+        type: 'success',
+        title: 'All Tests Passed!',
+        message: `${results.passed} test${results.passed !== 1 ? 's' : ''} completed successfully`,
+        duration: 4000
+      });
+    } else {
+      addNotification({
+        type: 'error',
+        title: 'Some Tests Failed',
+        message: `${results.failed} of ${totalTests} test${totalTests !== 1 ? 's' : ''} failed`,
+        duration: 6000
+      });
+    }
 
     } catch (error) {
       console.error('Error running tests:', error);
       addLog(`Error running tests: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Show error notification
+      addNotification({
+        type: 'error',
+        title: 'Test Execution Failed',
+        message: error instanceof Error ? error.message : 'Unknown error occurred',
+        duration: 8000
+      });
       
       // Mark all selected tests as failed
       config.selectedTestFiles.forEach(file => {
@@ -459,25 +533,6 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     return individualTests;
   };
 
-  // Handle drag end for reordering
-  const handleDragEnd = (event: DragEndEvent) => {
-    const { active, over } = event;
-
-    if (over && active.id !== over.id) {
-      setIndividualTestCases((items) => {
-        const oldIndex = items.findIndex(item => item.id === active.id);
-        const newIndex = items.findIndex(item => item.id === over.id);
-        
-        const newItems = arrayMove(items, oldIndex, newIndex);
-        
-        // Update order numbers
-        return newItems.map((item, index) => ({
-          ...item,
-          order: index
-        }));
-      });
-    }
-  };
 
   // Toggle individual test case selection
   const toggleTestCaseSelection = (testId: string) => {
@@ -506,11 +561,79 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
 
   // Toggle individual test view
   const toggleIndividualTestView = () => {
-    if (!showIndividualTests && testData) {
-      const individualTests = convertToIndividualTestCases(testData);
-      setIndividualTestCases(individualTests);
+  };
+
+  // Run selected individual test cases
+  const handleRunSelectedIndividualTests = () => {
+    const selectedTestCases = getSelectedTestCasesInOrder();
+    
+    if (selectedTestCases.length === 0) {
+      addLog('No test cases selected. Please select at least one test case.');
+      return;
     }
-    setShowIndividualTests(!showIndividualTests);
+
+    if (status === 'running') {
+      addLog('Test execution is already in progress. Please wait for it to complete.');
+      return;
+    }
+
+    addLog(`Starting execution of ${selectedTestCases.length} selected individual test cases...`);
+    addLog(`Test execution order: ${selectedTestCases.map(tc => tc.testName).join(' → ')}`);
+    
+    // Create a minimal config for individual test execution
+    const config: TestRunConfig = {
+      selectedTestFiles: [], // Will be populated by runTests function
+      username: 'testuser', // Default username
+      password: 'testpass', // Default password
+      websiteUrl: 'http://localhost:3000', // Default URL
+      environment: 'custom',
+      runWithUI: false // Default to headless mode for individual tests
+    };
+
+    // Force individual test mode and run
+    runTests(config);
+  };
+
+  // Run a single test case
+  const handleRunSingleTestCase = (testCase: IndividualTestCase) => {
+    if (status === 'running') {
+      addLog('Test execution is already in progress. Please wait for it to complete.');
+      return;
+    }
+
+    addLog(`Starting execution of single test case: ${testCase.testName}`);
+    
+    // Create a config for single test execution
+    const config: TestRunConfig = {
+      selectedTestFiles: [], // Will be populated by runTests function
+      username: 'testuser', // Default username
+      password: 'testpass', // Default password
+      websiteUrl: 'http://localhost:3000', // Default URL
+      environment: 'custom',
+      runWithUI: false // Default to headless mode for individual tests
+    };
+
+    // Temporarily select only this test case
+    const originalSelection = individualTestCases.map(tc => tc.selected);
+    setIndividualTestCases(prev => 
+      prev.map(tc => ({
+        ...tc,
+        selected: tc.id === testCase.id
+      }))
+    );
+
+    // Force individual test mode and run
+    runTests(config);
+
+    // Restore original selection after a delay
+    setTimeout(() => {
+      setIndividualTestCases(prev => 
+        prev.map((tc, index) => ({
+          ...tc,
+          selected: originalSelection[index]
+        }))
+      );
+    }, 1000);
   };
 
   // Sortable Test Case Item Component
@@ -563,8 +686,20 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
           </div>
         </div>
         
-        <div className="text-xs text-muted-foreground">
-          #{testCase.order + 1}
+        <div className="flex items-center gap-2">
+          <div className="text-xs text-muted-foreground">
+            #{testCase.order + 1}
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => handleRunSingleTestCase(testCase)}
+            disabled={status === 'running'}
+            className="flex items-center gap-1 h-6 px-2 text-xs"
+          >
+            <Play className="w-3 h-3" />
+            Run
+          </Button>
         </div>
       </div>
     );
@@ -601,22 +736,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
       <nav className="border-b bg-card">
         <div className="container mx-auto px-6 py-3">
           <div className="flex gap-3 items-center">
-            <Button 
-              variant="outline" 
-              onClick={handleOpenLatestReport}
-              className="flex items-center"
-            >
-              <ExternalLink className="w-4 h-4 mr-2" />
-              Open Latest Report
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleListTests}
-              className="flex items-center"
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              List Tests
-            </Button>
+            {/* Primary Actions */}
             <Button 
               variant="outline" 
               onClick={fetchTestData}
@@ -626,68 +746,97 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
               <RefreshCw className={`w-4 h-4 mr-2 ${isLoadingTests ? 'animate-spin' : ''}`} />
               Refresh Tests
             </Button>
+            
             <Button 
               variant="outline" 
-              onClick={handleClearLogs}
-              className="flex items-center"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Clear Logs
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleDownloadLogs}
-              disabled={logs.length === 0}
-              className="flex items-center"
-            >
-              <Download className="w-4 h-4 mr-2" />
-              Download Logs
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleRefreshCache}
-              disabled={isLoadingCache}
-              className="flex items-center"
-            >
-              <Database className={`w-4 h-4 mr-2 ${isLoadingCache ? 'animate-pulse' : ''}`} />
-              Refresh Cache
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={handleClearCache}
-              disabled={!cachedTestStatus}
-              className="flex items-center"
-            >
-              <Trash2 className="w-4 h-4 mr-2" />
-              Clear Cache
-            </Button>
-            <Button 
-              variant="outline" 
-              onClick={async () => {
-                addLog('Starting Playwright report server...');
-                try {
-                  const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/start-report`, {
-                    method: 'POST'
-                  });
-                  
-                  if (response.ok) {
-                    const data = await response.json();
-                    addLog('Playwright report server started. Opening in browser...');
-                    setTimeout(() => {
-                      window.open(data.url, '_blank');
-                    }, 2000);
-                  } else {
-                    throw new Error('Failed to start report server');
-                  }
-                } catch (error) {
-                  addLog(`Error starting report server: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                }
-              }}
+              onClick={handleOpenLatestReport}
               className="flex items-center"
             >
               <ExternalLink className="w-4 h-4 mr-2" />
-              Show Report
+              Latest Report
             </Button>
+
+            {/* View Controls */}
+            <div className="flex items-center gap-2">
+              <Button 
+                variant={showQuickActions ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowQuickActions(!showQuickActions)}
+                className="flex items-center"
+              >
+                <Menu className="w-4 h-4 mr-1" />
+                Quick Actions
+              </Button>
+              
+              <Button 
+                variant={showLiveLogs ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowLiveLogs(!showLiveLogs)}
+                className="flex items-center"
+              >
+                <FileText className="w-4 h-4 mr-1" />
+                Live Logs
+              </Button>
+            </div>
+
+            {/* More Actions Dropdown */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <MoreVertical className="w-4 h-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onClick={() => setShowEnvironmentManager(!showEnvironmentManager)}>
+                  <Settings className="w-4 h-4 mr-2" />
+                  {showEnvironmentManager ? 'Hide' : 'Manage'} Environments
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleClearLogs}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear Logs
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleDownloadLogs} disabled={logs.length === 0}>
+                  <Download className="w-4 h-4 mr-2" />
+                  Download Logs
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={handleRefreshCache} disabled={isLoadingCache}>
+                  <Database className={`w-4 h-4 mr-2 ${isLoadingCache ? 'animate-pulse' : ''}`} />
+                  Refresh Cache
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={handleClearCache} disabled={!cachedTestStatus}>
+                  <Trash2 className="w-4 h-4 mr-2" />
+                  Clear Cache
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={async () => {
+                  addLog('Starting Playwright report server...');
+                  try {
+                    const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/start-report`, {
+                      method: 'POST'
+                    });
+                    
+                    if (response.ok) {
+                      const data = await response.json();
+                      addLog('Playwright report server started. Opening in browser...');
+                      setTimeout(() => {
+                        window.open(data.url, '_blank');
+                      }, 2000);
+                    } else {
+                      throw new Error('Failed to start report server');
+                    }
+                  } catch (error) {
+                    addLog(`Error starting report server: ${error instanceof Error ? error.message : 'Unknown error'}`);
+                  }
+                }}>
+                  <ExternalLink className="w-4 h-4 mr-2" />
+                  Show Report
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* Status Info */}
             <div className="ml-auto flex items-center gap-4 text-sm text-muted-foreground">
               {testData && (
                 <div>
@@ -721,112 +870,46 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
 
       {/* Main Content */}
       <main className="container mx-auto px-6 py-6">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+        <div className={`grid gap-6 mb-6 ${showQuickActions ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1'}`}>
           <RunTestsCard 
             onRunTests={handleRunTests} 
             isRunning={status === 'running'}
             testFiles={testFiles}
+            individualTestCases={individualTestCases}
+            onIndividualTestCaseToggle={toggleTestCaseSelection}
+            onToggleAllIndividualTests={toggleAllTestCases}
           />
-          <QuickActionsCard
-            onOpenTestFile={handleOpenTestFile}
-            testFiles={testFiles}
-            testResults={testResults}
-          />
+          {showQuickActions && (
+            <QuickActionsCard
+              onOpenTestFile={handleOpenTestFile}
+              testFiles={testFiles}
+              testResults={testResults}
+            />
+          )}
         </div>
 
-        {/* Individual Test Cases View */}
-        {testData && (
+        {/* Environment Manager */}
+        {showEnvironmentManager && (
           <div className="mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-4">
-                <h2 className="text-xl font-semibold">Test Cases</h2>
-                <Button
-                  variant="outline"
-                  onClick={toggleIndividualTestView}
-                  className="flex items-center gap-2"
-                >
-                  {showIndividualTests ? 'Hide Individual Tests' : 'Show Individual Tests'}
-                </Button>
-              </div>
-              
-              {showIndividualTests && (
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => toggleAllTestCases(true)}
-                    className="flex items-center gap-1"
-                  >
-                    <CheckSquare className="w-4 h-4" />
-                    Check All
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => toggleAllTestCases(false)}
-                    className="flex items-center gap-1"
-                  >
-                    <Square className="w-4 h-4" />
-                    Uncheck All
-                  </Button>
-                </div>
-              )}
-            </div>
-
-            {showIndividualTests ? (
-              <div className="space-y-3">
-                <div className="text-sm text-muted-foreground mb-3">
-                  {individualTestCases.length} test cases • {individualTestCases.filter(t => t.selected).length} selected
-                </div>
-                
-                <DndContext
-                  sensors={sensors}
-                  collisionDetection={closestCenter}
-                  onDragEnd={handleDragEnd}
-                >
-                  <SortableContext
-                    items={individualTestCases.map(t => t.id)}
-                    strategy={verticalListSortingStrategy}
-                  >
-                    <div className="space-y-2">
-                      {individualTestCases.map((testCase) => (
-                        <SortableTestCaseItem key={testCase.id} testCase={testCase} />
-                      ))}
-                    </div>
-                  </SortableContext>
-                </DndContext>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {testData.tests.map((test, index) => (
-                  <div key={index} className="border rounded-lg p-4 hover:shadow-md transition-shadow">
-                    <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-medium text-sm truncate">{test.fileName}</h3>
-                      <StatusPill status={testResults[test.fileName] || 'pending'} />
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-2">
-                      {test.testCount} test{test.testCount !== 1 ? 's' : ''}
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleOpenTestFile(test.fileName)}
-                        className="flex items-center gap-1"
-                      >
-                        <FileText className="w-3 h-3" />
-                        View
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
+            <EnvironmentManager 
+              onEnvironmentChange={() => {
+                addLog('Environment configuration updated');
+                // Refresh the RunTestsCard to get updated environment config
+                window.location.reload();
+              }}
+            />
           </div>
         )}
+
         
-        <LiveLogsCard logs={logs} />
+        {showLiveLogs && <LiveLogsCard logs={logs} />}
       </main>
+      
+      {/* Notification System */}
+      <NotificationSystem 
+        notifications={notifications} 
+        onRemove={removeNotification} 
+      />
     </div>
   );
 }
