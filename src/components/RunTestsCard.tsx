@@ -173,7 +173,7 @@ export function RunTestsCard({
   const fetchEnvironmentConfig = async () => {
     setIsLoadingEnvironments(true);
     try {
-      const response = await fetch(getApiUrl('/api/environments'));
+      const response = await fetch(getApiUrl('/environments'));
       if (response.ok) {
         const data = await response.json();
         console.log('Environment config loaded:', data);
@@ -648,7 +648,7 @@ pause
                   try {
                     // First test if server is responding
                     console.log('Testing server connection...');
-                    const testResponse = await fetch(getApiUrl('/api/test'));
+                    const testResponse = await fetch(getApiUrl('/test'));
                     if (!testResponse.ok) {
                       alert(`Server not responding (${testResponse.status})`);
                       return;
@@ -658,7 +658,7 @@ pause
                     
                     // Now test browser
                     console.log('Testing browser with runWithUI:', runWithUI);
-                    const response = await fetch(getApiUrl('/api/test-browser'), {
+                    const response = await fetch(getApiUrl('/test-browser'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ runWithUI })

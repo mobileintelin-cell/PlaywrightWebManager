@@ -45,8 +45,8 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
     setError(null);
     try {
       const url = query 
-        ? getApiUrl(`/api/projects/search?q=${encodeURIComponent(query)}`)
-        : getApiUrl('/api/projects');
+        ? getApiUrl(`/projects/search?q=${encodeURIComponent(query)}`)
+        : getApiUrl('/projects');
       
       const response = await fetch(url);
       
@@ -109,7 +109,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
     
     setIsCreatingProject(true);
     try {
-      const response = await fetch(getApiUrl('/api/projects/create'), {
+      const response = await fetch(getApiUrl('/projects/create'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

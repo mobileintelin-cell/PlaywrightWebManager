@@ -49,7 +49,7 @@ export function EnvironmentManager({ onEnvironmentChange }: EnvironmentManagerPr
   const fetchEnvironmentConfig = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(getApiUrl('/api/environments'));
+      const response = await fetch(getApiUrl('/environments'));
       if (response.ok) {
         const data = await response.json();
         setEnvironmentConfig(data);
@@ -67,7 +67,7 @@ export function EnvironmentManager({ onEnvironmentChange }: EnvironmentManagerPr
     
     setIsSaving(true);
     try {
-      const response = await fetch(getApiUrl('/api/environments'), {
+      const response = await fetch(getApiUrl('/environments'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
