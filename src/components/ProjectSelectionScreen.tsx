@@ -61,7 +61,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
       const projectsWithCache = await Promise.all(
         data.map(async (project: ProjectFolder) => {
           try {
-            const cacheResponse = await fetch(getApiUrl(`/api/projects/${project.name}/test-status`));
+            const cacheResponse = await fetch(getApiUrl(`/projects/${project.name}/test-status`));
             if (cacheResponse.ok) {
               const cacheData = await cacheResponse.json();
               if (cacheData.hasCache) {

@@ -1662,7 +1662,7 @@ app.get('/api/projects/:projectName/test-status', async (req, res) => {
 });
 
 // API endpoint to get all cached test run statuses
-app.get('/api/test-status/all', async (req, res) => {
+app.get('/test-status/all', async (req, res) => {
   try {
     const allCachedRuns = getAllCachedTestRuns();
     
@@ -1702,7 +1702,7 @@ app.delete('/api/projects/:projectName/test-status', async (req, res) => {
 });
 
 // API endpoint to clear all cached test run statuses
-app.delete('/api/test-status/all', async (req, res) => {
+app.delete('/test-status/all', async (req, res) => {
   try {
     testRunCache.clear();
     

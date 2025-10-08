@@ -83,7 +83,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     setIsLoadingTests(true);
     setTestError(null);
     try {
-      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/tests`));
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/tests`));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -232,7 +232,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
       
       console.log('TestDashboard: Sending request body:', JSON.stringify(requestBody, null, 2));
       
-      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/run-tests`), {
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/run-tests`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -335,7 +335,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     addLog(`Opening test file: ${filename}`);
     
     try {
-      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/test-file/${filename}`));
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/test-file/${filename}`));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -417,7 +417,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     addLog(`Opening latest test report for ${selectedProject}...`);
     
     try {
-      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/report`));
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/report`));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -811,7 +811,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
                 <DropdownMenuItem onClick={async () => {
                   addLog('Starting Playwright report server...');
                   try {
-                    const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/start-report`), {
+                    const response = await fetch(getApiUrl(`/projects/${selectedProject}/start-report`), {
                       method: 'POST'
                     });
                     
