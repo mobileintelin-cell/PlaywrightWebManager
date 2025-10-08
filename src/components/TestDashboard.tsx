@@ -213,14 +213,11 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     // Initial setup steps
     const setupSteps = [
       'Setting up test environment...',
-      'Launching browser instance...',
-      `Navigating to ${config.websiteUrl}...`,
-      `Authenticating with username: ${config.username}...`,
-      'Loading selected test files...'
+      `Authenticating with website ${config.websiteUrl} and username: ${config.username}...`,
     ];
 
     for (let i = 0; i < setupSteps.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 300));
+      await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 400));
       addLog(setupSteps[i]);
     }
 

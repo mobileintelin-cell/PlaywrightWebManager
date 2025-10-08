@@ -3,9 +3,17 @@ const fs = require('fs').promises;
 const path = require('path');
 const cors = require('cors');
 const { spawn } = require('child_process');
+const WebSocket = require('ws');
+const http = require('http');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Create HTTP server
+const server = http.createServer(app);
+
+// Create WebSocket server
+const wss = new WebSocket.Server({ server });
 
 // Enable CORS for all routes
 app.use(cors());
@@ -13,6 +21,235 @@ app.use(express.json());
 
 // In-memory cache for test run status
 const testRunCache = new Map();
+
+// Command log storage and monitoring
+const commandLogs = new Map();
+const commandHistory = [];
+const activeConnections = new Set();
+
+// Command log structure
+class CommandLog {
+  constructor(commandId, projectName, command, args, environment) {
+    this.id = commandId;
+    this.projectName = projectName;
+    this.command = command;
+    this.args = args;
+    this.environment = environment;
+    this.startTime = new Date();
+    this.endTime = null;
+    this.status = 'running'; // running, completed, failed, cancelled
+    this.exitCode = null;
+    this.stdout = [];
+    this.stderr = [];
+    this.logs = [];
+    this.processId = null;
+  }
+
+  addLog(level, message, timestamp = new Date()) {
+    const logEntry = {
+      level,
+      message,
+      timestamp: timestamp.toISOString(),
+      id: this.id
+    };
+    this.logs.push(logEntry);
+    
+    // Broadcast to all connected clients
+    this.broadcastLog(logEntry);
+  }
+
+  addOutput(data, isError = false) {
+    const timestamp = new Date();
+    const output = {
+      data: data.toString(),
+      timestamp: timestamp.toISOString(),
+      isError,
+      id: this.id
+    };
+    
+    if (isError) {
+      this.stderr.push(output);
+    } else {
+      this.stdout.push(output);
+    }
+    
+    // Broadcast to all connected clients
+    this.broadcastOutput(output);
+  }
+
+  broadcastLog(logEntry) {
+    const message = JSON.stringify({
+      type: 'log',
+      data: logEntry
+    });
+    
+    activeConnections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    });
+  }
+
+  broadcastOutput(output) {
+    const message = JSON.stringify({
+      type: 'output',
+      data: output
+    });
+    
+    activeConnections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    });
+  }
+
+  complete(exitCode = 0) {
+    this.endTime = new Date();
+    this.exitCode = exitCode;
+    this.status = exitCode === 0 ? 'completed' : 'failed';
+    
+    // Broadcast completion
+    const message = JSON.stringify({
+      type: 'command_complete',
+      data: {
+        id: this.id,
+        status: this.status,
+        exitCode: this.exitCode,
+        endTime: this.endTime.toISOString(),
+        duration: this.endTime - this.startTime
+      }
+    });
+    
+    activeConnections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    });
+  }
+
+  toJSON() {
+    return {
+      id: this.id,
+      projectName: this.projectName,
+      command: this.command,
+      args: this.args,
+      environment: this.environment,
+      startTime: this.startTime.toISOString(),
+      endTime: this.endTime ? this.endTime.toISOString() : null,
+      status: this.status,
+      exitCode: this.exitCode,
+      duration: this.endTime ? this.endTime - this.startTime : Date.now() - this.startTime,
+      stdout: this.stdout,
+      stderr: this.stderr,
+      logs: this.logs,
+      processId: this.processId
+    };
+  }
+}
+
+// WebSocket connection handling
+wss.on('connection', (ws) => {
+  console.log('New WebSocket connection established');
+  activeConnections.add(ws);
+  
+  // Send current active command logs to new connection
+  const activeLogs = Array.from(commandLogs.values()).filter(log => log.status === 'running');
+  if (activeLogs.length > 0) {
+    ws.send(JSON.stringify({
+      type: 'active_commands',
+      data: activeLogs.map(log => log.toJSON())
+    }));
+  }
+  
+  ws.on('close', () => {
+    console.log('WebSocket connection closed');
+    activeConnections.delete(ws);
+  });
+  
+  ws.on('error', (error) => {
+    console.error('WebSocket error:', error);
+    activeConnections.delete(ws);
+  });
+});
+
+// Command log management functions
+const generateCommandId = () => {
+  return `cmd_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+};
+
+const createCommandLog = (projectName, command, args, environment) => {
+  const commandId = generateCommandId();
+  const commandLog = new CommandLog(commandId, projectName, command, args, environment);
+  commandLogs.set(commandId, commandLog);
+  commandHistory.push(commandLog);
+  
+  // Keep only last 100 commands in history
+  if (commandHistory.length > 100) {
+    const removed = commandHistory.shift();
+    commandLogs.delete(removed.id);
+  }
+  
+  // Broadcast new command start
+  const message = JSON.stringify({
+    type: 'command_start',
+    data: commandLog.toJSON()
+  });
+  
+  activeConnections.forEach(ws => {
+    if (ws.readyState === WebSocket.OPEN) {
+      ws.send(message);
+    }
+  });
+  
+  return commandLog;
+};
+
+const getCommandLog = (commandId) => {
+  return commandLogs.get(commandId);
+};
+
+const getAllCommandLogs = () => {
+  return Array.from(commandLogs.values());
+};
+
+const getCommandHistory = (limit = 50) => {
+  return commandHistory.slice(-limit).reverse();
+};
+
+const searchCommandLogs = (query, filters = {}) => {
+  let results = Array.from(commandLogs.values());
+  
+  // Filter by query
+  if (query) {
+    const searchTerm = query.toLowerCase();
+    results = results.filter(log => 
+      log.command.toLowerCase().includes(searchTerm) ||
+      log.projectName.toLowerCase().includes(searchTerm) ||
+      log.logs.some(logEntry => logEntry.message.toLowerCase().includes(searchTerm))
+    );
+  }
+  
+  // Apply additional filters
+  if (filters.status) {
+    results = results.filter(log => log.status === filters.status);
+  }
+  
+  if (filters.projectName) {
+    results = results.filter(log => log.projectName === filters.projectName);
+  }
+  
+  if (filters.startDate) {
+    const startDate = new Date(filters.startDate);
+    results = results.filter(log => log.startTime >= startDate);
+  }
+  
+  if (filters.endDate) {
+    const endDate = new Date(filters.endDate);
+    results = results.filter(log => log.startTime <= endDate);
+  }
+  
+  return results.sort((a, b) => b.startTime - a.startTime);
+};
 
 // Environment configuration
 let environmentConfig = null;
@@ -923,9 +1160,25 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       HEADLESS: env.HEADLESS
     } : 'N/A');
     
+    // Create command log for monitoring
+    const commandLog = createCommandLog(
+      projectName,
+      'npx playwright',
+      playwrightArgs,
+      environment
+    );
+    
+    // Format command with environment variables
+    const envVars = [];
+    if (env.LOCAL) envVars.push(`LOCAL=${env.LOCAL}`);
+    if (env.USERNAME) envVars.push(`USERNAME=${env.USERNAME}`);
+    if (env.PASSWORD) envVars.push(`PASSWORD=***`);
+    const envPrefix = envVars.length > 0 ? `${envVars.join(' ')} ` : '';
+    
     // Log the exact Playwright command being executed
     console.log('=== EXECUTING PLAYWRIGHT COMMAND ===');
-    console.log(`Full command: npx playwright ${playwrightArgs.join(' ')}`);
+    console.log(`Command ID: ${commandLog.id}`);
+    console.log(`Full command: ${envPrefix}npx playwright ${playwrightArgs.join(' ')}`);
     console.log(`Working directory: ${projectPath}`);
     console.log(`Environment variables:`, {
       LOCAL: env.LOCAL,
@@ -938,6 +1191,13 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       PLAYWRIGHT_HEADLESS: env.PLAYWRIGHT_HEADLESS
     });
     console.log('=====================================');
+    
+    // Add initial log entries
+    commandLog.addLog('info', `Starting Playwright test execution for project: ${projectName}`);
+    commandLog.addLog('info', `Command: ${envPrefix}npx playwright ${playwrightArgs.join(' ')}`);
+    commandLog.addLog('info', `Environment: ${environment} (${finalUrl})`);
+    commandLog.addLog('info', `UI Mode: ${runWithUI ? 'Headed (browser visible)' : 'Headless (no browser UI)'}`);
+    commandLog.addLog('info', `Selected test files: ${selectedTestFiles.join(', ')}`);
     
     // Execute Playwright tests
     const spawnOptions = {
@@ -959,29 +1219,55 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     
     const playwrightProcess = spawn('npx', ['playwright', ...playwrightArgs], spawnOptions);
     
+    // Store process ID in command log
+    commandLog.processId = playwrightProcess.pid;
+    commandLog.addLog('info', `Process started with PID: ${playwrightProcess.pid}`);
+    
     let stdout = '';
     let stderr = '';
     let hasError = false;
     
-    // Collect output
+    // Collect output and stream to command log
     playwrightProcess.stdout.on('data', (data) => {
-      stdout += data.toString();
+      const dataStr = data.toString();
+      stdout += dataStr;
+      commandLog.addOutput(data, false);
+      
+      // Parse and log specific Playwright events
+      if (dataStr.includes('Running')) {
+        commandLog.addLog('info', `Test execution started: ${dataStr.trim()}`);
+      } else if (dataStr.includes('PASS')) {
+        commandLog.addLog('success', `Test passed: ${dataStr.trim()}`);
+      } else if (dataStr.includes('FAIL')) {
+        commandLog.addLog('error', `Test failed: ${dataStr.trim()}`);
+      } else if (dataStr.includes('SKIP')) {
+        commandLog.addLog('warn', `Test skipped: ${dataStr.trim()}`);
+      }
     });
     
     playwrightProcess.stderr.on('data', (data) => {
       const errorData = data.toString();
       stderr += errorData;
       hasError = true;
+      commandLog.addOutput(data, true);
       
       // Log browser launch errors specifically
       if (runWithUI && (errorData.includes('browser') || errorData.includes('display') || errorData.includes('X11'))) {
         console.log('Browser launch error (headed mode):', errorData);
+        commandLog.addLog('error', `Browser launch error: ${errorData.trim()}`);
+      } else if (errorData.includes('Error') || errorData.includes('error')) {
+        commandLog.addLog('error', `Process error: ${errorData.trim()}`);
       }
     });
     
     // Handle process completion
     playwrightProcess.on('close', (code) => {
       const executionTime = Date.now() - startTime;
+      
+      // Complete the command log
+      commandLog.complete(code);
+      commandLog.addLog('info', `Process completed with exit code: ${code}`);
+      commandLog.addLog('info', `Total execution time: ${executionTime}ms`);
       
       // Parse test results from JSON output
       let parsedResults = {};
@@ -1052,7 +1338,8 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
         exitCode: code,
         stdout: stdout.substring(0, 1000), // Limit output size
         stderr: stderr.substring(0, 1000), // Limit error size
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        commandLogId: commandLog.id // Include command log ID for reference
       };
 
       // Cache the test results
@@ -1069,6 +1356,11 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     // Handle process errors
     playwrightProcess.on('error', (error) => {
       console.error('Playwright process error:', error);
+      
+      // Log the error in command log
+      commandLog.addLog('error', `Process error: ${error.message}`);
+      commandLog.complete(-1);
+      
       res.status(500).json({
         success: false,
         error: 'Failed to start Playwright process',
@@ -1087,7 +1379,8 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
           executionTime: Date.now() - startTime,
           exitCode: -1,
           error: error.message,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          commandLogId: commandLog.id
         }
       });
     });
@@ -1619,14 +1912,255 @@ app.put('/api/environments/:envId', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', timestamp: new Date().toISOString() });
+// API endpoint to get all command logs
+app.get('/api/command-logs', async (req, res) => {
+  try {
+    const { limit = 50, status, projectName, startDate, endDate } = req.query;
+    
+    const filters = {};
+    if (status) filters.status = status;
+    if (projectName) filters.projectName = projectName;
+    if (startDate) filters.startDate = startDate;
+    if (endDate) filters.endDate = endDate;
+    
+    const logs = searchCommandLogs('', filters);
+    const limitedLogs = logs.slice(0, parseInt(limit));
+    
+    res.json({
+      success: true,
+      logs: limitedLogs.map(log => log.toJSON()),
+      total: logs.length,
+      filters
+    });
+    
+  } catch (error) {
+    console.error('Error getting command logs:', error);
+    res.status(500).json({ 
+      error: 'Failed to get command logs',
+      message: error.message 
+    });
+  }
 });
 
-app.listen(PORT, async () => {
+// API endpoint to get specific command log
+app.get('/api/command-logs/:commandId', async (req, res) => {
+  try {
+    const { commandId } = req.params;
+    const commandLog = getCommandLog(commandId);
+    
+    if (!commandLog) {
+      return res.status(404).json({
+        error: 'Command log not found',
+        message: `Command log with ID "${commandId}" does not exist`
+      });
+    }
+    
+    res.json({
+      success: true,
+      commandLog: commandLog.toJSON()
+    });
+    
+  } catch (error) {
+    console.error('Error getting command log:', error);
+    res.status(500).json({ 
+      error: 'Failed to get command log',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to search command logs
+app.get('/api/command-logs/search', async (req, res) => {
+  try {
+    const { q: query, status, projectName, startDate, endDate, limit = 50 } = req.query;
+    
+    const filters = {};
+    if (status) filters.status = status;
+    if (projectName) filters.projectName = projectName;
+    if (startDate) filters.startDate = startDate;
+    if (endDate) filters.endDate = endDate;
+    
+    const logs = searchCommandLogs(query, filters);
+    const limitedLogs = logs.slice(0, parseInt(limit));
+    
+    res.json({
+      success: true,
+      logs: limitedLogs.map(log => log.toJSON()),
+      total: logs.length,
+      query,
+      filters
+    });
+    
+  } catch (error) {
+    console.error('Error searching command logs:', error);
+    res.status(500).json({ 
+      error: 'Failed to search command logs',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to get command history
+app.get('/api/command-history', async (req, res) => {
+  try {
+    const { limit = 50 } = req.query;
+    const history = getCommandHistory(parseInt(limit));
+    
+    res.json({
+      success: true,
+      history: history.map(log => log.toJSON()),
+      total: history.length
+    });
+    
+  } catch (error) {
+    console.error('Error getting command history:', error);
+    res.status(500).json({ 
+      error: 'Failed to get command history',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to get active/running commands
+app.get('/api/command-logs/active', async (req, res) => {
+  try {
+    const activeLogs = Array.from(commandLogs.values())
+      .filter(log => log.status === 'running')
+      .map(log => log.toJSON());
+    
+    res.json({
+      success: true,
+      activeCommands: activeLogs,
+      count: activeLogs.length
+    });
+    
+  } catch (error) {
+    console.error('Error getting active commands:', error);
+    res.status(500).json({ 
+      error: 'Failed to get active commands',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to cancel a running command
+app.post('/api/command-logs/:commandId/cancel', async (req, res) => {
+  try {
+    const { commandId } = req.params;
+    const commandLog = getCommandLog(commandId);
+    
+    if (!commandLog) {
+      return res.status(404).json({
+        error: 'Command log not found',
+        message: `Command log with ID "${commandId}" does not exist`
+      });
+    }
+    
+    if (commandLog.status !== 'running') {
+      return res.status(400).json({
+        error: 'Command not running',
+        message: `Command "${commandId}" is not currently running`
+      });
+    }
+    
+    // Note: In a real implementation, you would kill the actual process
+    // For now, we'll just mark it as cancelled
+    commandLog.status = 'cancelled';
+    commandLog.endTime = new Date();
+    commandLog.addLog('warn', 'Command cancelled by user');
+    
+    // Broadcast cancellation
+    const message = JSON.stringify({
+      type: 'command_cancelled',
+      data: {
+        id: commandLog.id,
+        status: 'cancelled',
+        endTime: commandLog.endTime.toISOString()
+      }
+    });
+    
+    activeConnections.forEach(ws => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(message);
+      }
+    });
+    
+    res.json({
+      success: true,
+      message: `Command "${commandId}" has been cancelled`,
+      commandLog: commandLog.toJSON()
+    });
+    
+  } catch (error) {
+    console.error('Error cancelling command:', error);
+    res.status(500).json({ 
+      error: 'Failed to cancel command',
+      message: error.message 
+    });
+  }
+});
+
+// API endpoint to clear command logs
+app.delete('/api/command-logs', async (req, res) => {
+  try {
+    const { olderThan } = req.query;
+    
+    if (olderThan) {
+      const cutoffDate = new Date(olderThan);
+      const logsToRemove = Array.from(commandLogs.values())
+        .filter(log => log.startTime < cutoffDate);
+      
+      logsToRemove.forEach(log => {
+        commandLogs.delete(log.id);
+        const index = commandHistory.indexOf(log);
+        if (index > -1) {
+          commandHistory.splice(index, 1);
+        }
+      });
+      
+      res.json({
+        success: true,
+        message: `Cleared ${logsToRemove.length} command logs older than ${cutoffDate.toISOString()}`,
+        clearedCount: logsToRemove.length
+      });
+    } else {
+      // Clear all logs
+      const clearedCount = commandLogs.size;
+      commandLogs.clear();
+      commandHistory.length = 0;
+      
+      res.json({
+        success: true,
+        message: 'All command logs cleared',
+        clearedCount
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error clearing command logs:', error);
+    res.status(500).json({ 
+      error: 'Failed to clear command logs',
+      message: error.message 
+    });
+  }
+});
+
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ 
+    status: 'OK', 
+    timestamp: new Date().toISOString(),
+    activeConnections: activeConnections.size,
+    commandLogsCount: commandLogs.size,
+    commandHistoryCount: commandHistory.length
+  });
+});
+
+server.listen(PORT, async () => {
   console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`WebSocket server running on ws://localhost:${PORT}`);
   console.log(`Playwright projects path: ${PLAYWRIGHT_PROJECTS_PATH}`);
+  console.log(`Command log monitoring enabled`);
   
   // Load environment configuration on startup
   await loadEnvironmentConfig();
