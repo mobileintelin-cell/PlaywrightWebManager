@@ -7,6 +7,7 @@ import { ScrollArea } from './ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Alert, AlertDescription } from './ui/alert';
+import { getApiUrl } from '../config/api';
 import { 
   Play, 
   Square, 
@@ -183,7 +184,7 @@ const CommandLogMonitor: React.FC<CommandLogMonitorProps> = ({ className }) => {
 
   const loadCommandLogs = async () => {
     try {
-      const response = await fetch('/api/command-logs?limit=100');
+      const response = await fetch(getApiUrl('/command-logs?limit=100'));
       const data = await response.json();
       if (data.success) {
         setCommandLogs(data.logs);
@@ -195,7 +196,7 @@ const CommandLogMonitor: React.FC<CommandLogMonitorProps> = ({ className }) => {
 
   const loadActiveCommands = async () => {
     try {
-      const response = await fetch('/api/command-logs/active');
+      const response = await fetch(getApiUrl('/command-logs/active'));
       const data = await response.json();
       if (data.success) {
         setActiveCommands(data.activeCommands);
@@ -221,7 +222,7 @@ const CommandLogMonitor: React.FC<CommandLogMonitorProps> = ({ className }) => {
 
   const clearLogs = async () => {
     try {
-      const response = await fetch('/api/command-logs', {
+      const response = await fetch(getApiUrl('/command-logs'), {
         method: 'DELETE'
       });
       const data = await response.json();

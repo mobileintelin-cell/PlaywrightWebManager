@@ -122,7 +122,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
   const fetchCachedTestStatus = async () => {
     setIsLoadingCache(true);
     try {
-      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/test-status`));
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/test-status`));
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -489,7 +489,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
 
   const handleClearCache = async () => {
     try {
-      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/test-status`), {
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/test-status`), {
         method: 'DELETE'
       });
       
