@@ -1,15 +1,12 @@
 // API Configuration
-// Change this to your server IP address for network access
-// api.ts (or wherever your constants live)
+// For development - Vite proxy handles /api requests to backend
 export const API_BASE_URL = '/api';
+export const WS_BASE_URL = 'ws://localhost:3001';
 
-// If you use websockets on the same server:
-const wsScheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
-export const WS_BASE_URL = wsScheme + window.location.host;
-
-// For development, you can use localhost instead:
-// export const API_BASE_URL = 'http://localhost:3001';
-// export const WS_BASE_URL = 'ws://localhost:3001';
+// For production deployment (when frontend and backend are on same server):
+// export const API_BASE_URL = '/api';
+// const wsScheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+// export const WS_BASE_URL = wsScheme + window.location.host;
 
 // Helper functions
 export const getApiUrl = (endpoint: string) => `${API_BASE_URL}${endpoint}`;
