@@ -2156,9 +2156,11 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-server.listen(PORT, async () => {
-  console.log(`Server running on http://localhost:${PORT}`);
-  console.log(`WebSocket server running on ws://localhost:${PORT}`);
+server.listen(PORT, '0.0.0.0', async () => {
+  console.log(`Server running on http://0.0.0.0:${PORT}`);
+  console.log(`Server accessible on http://localhost:${PORT}`);
+  console.log(`Server accessible on http://192.168.0.144:${PORT}`);
+  console.log(`WebSocket server running on ws://0.0.0.0:${PORT}`);
   console.log(`Playwright projects path: ${PLAYWRIGHT_PROJECTS_PATH}`);
   console.log(`Command log monitoring enabled`);
   
