@@ -4,7 +4,6 @@ import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
 import { Checkbox } from "./ui/checkbox";
-import { Switch } from "./ui/switch";
 import { ScrollArea } from "./ui/scroll-area";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
@@ -38,7 +37,6 @@ export interface TestRunConfig {
   websiteUrl: string;
   environment: string;
   testExecutionOrder?: string[];
-  runWithUI?: boolean;
   runMode?: 'files' | 'individual';
 }
 
@@ -82,7 +80,6 @@ export function RunTestsCard({
   const [customUrl, setCustomUrl] = useState('');
   const [environmentConfig, setEnvironmentConfig] = useState(null);
   const [isLoadingEnvironments, setIsLoadingEnvironments] = useState(false);
-  const [runWithUI, setRunWithUI] = useState(false);
   const [testMode, setTestMode] = useState('files');
 
   // Debug: Log when individual test cases change
@@ -97,7 +94,6 @@ export function RunTestsCard({
       const cachedUsername = localStorage.getItem('playwright-username');
       const cachedPassword = localStorage.getItem('playwright-password');
       const cachedEnvironment = localStorage.getItem('playwright-environment');
-      const cachedRunWithUI = localStorage.getItem('playwright-run-with-ui');
       
       if (cachedUrl) {
         setCustomUrl(cachedUrl);
@@ -110,9 +106,6 @@ export function RunTestsCard({
       }
       if (cachedEnvironment) {
         setEnvironment(cachedEnvironment);
-      }
-      if (cachedRunWithUI) {
-        setRunWithUI(cachedRunWithUI === 'true');
       }
     } catch (error) {
       console.error('Error loading cached values:', error);
@@ -159,15 +152,6 @@ export function RunTestsCard({
     }
   };
 
-  // Cache runWithUI whenever it changes
-  const handleRunWithUIChange = (value: boolean) => {
-    setRunWithUI(value);
-    try {
-      localStorage.setItem('playwright-run-with-ui', value.toString());
-    } catch (error) {
-      console.error('Error caching runWithUI:', error);
-    }
-  };
 
   // Fetch environment configuration
   const fetchEnvironmentConfig = async () => {
@@ -249,7 +233,7 @@ export function RunTestsCard({
     if (environmentConfig) {
       logCachedValues();
     }
-  }, [customUrl, username, password, environment, runWithUI, environmentConfig]);
+  }, [customUrl, username, password, environment, environmentConfig]);
 
   // Reset environment if it becomes invalid
   useEffect(() => {
@@ -291,7 +275,6 @@ export function RunTestsCard({
       setUsername('');
       setPassword('');
       setEnvironment('custom');
-      setRunWithUI(false);
       
       console.log('Cache cleared successfully');
     } catch (error) {
@@ -307,7 +290,6 @@ export function RunTestsCard({
         username: localStorage.getItem('playwright-username'),
         password: localStorage.getItem('playwright-password'),
         environment: localStorage.getItem('playwright-environment'),
-        runWithUI: localStorage.getItem('playwright-run-with-ui'),
         currentWebsiteUrl: getWebsiteUrl()
       };
       console.log('Current cached values:', cached);
@@ -441,7 +423,6 @@ pause
   const handleRun = () => {
     const selectedIndividualTests = individualTestCases.filter(test => test.selected);
     
-    console.log('RunTestsCard: Sending runWithUI =', runWithUI, 'type:', typeof runWithUI);
     
     onRunTests({
       selectedTestFiles,
@@ -450,7 +431,6 @@ pause
       password,
       websiteUrl: getWebsiteUrl(),
       environment,
-      runWithUI,
       runMode: testMode
     });
   };
@@ -623,78 +603,6 @@ pause
           </div>
         </div>
 
-        {/* Run Options Section */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <Label className="text-sm font-medium">Run Options</Label>
-              <p className="text-xs text-muted-foreground">
-                {runWithUI ? 'Tests will run with browser UI visible' : 'Tests will run in headless mode (no browser UI)'}
-              </p>
-            </div>
-            <div className="flex items-center space-x-2">
-              <Label htmlFor="run-with-ui" className="text-sm">
-                Run with UI
-              </Label>
-              <Switch
-                id="run-with-ui"
-                checked={runWithUI}
-                onCheckedChange={handleRunWithUIChange}
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  try {
-                    // First test if server is responding
-                    console.log('Testing server connection...');
-                    const testResponse = await fetch(getApiUrl('/test'));
-                    if (!testResponse.ok) {
-                      alert(`Server not responding (${testResponse.status})`);
-                      return;
-                    }
-                    const testResult = await testResponse.json();
-                    console.log('Server test result:', testResult);
-                    
-                    // Now test browser
-                    console.log('Testing browser with runWithUI:', runWithUI);
-                    const response = await fetch(getApiUrl('/test-browser'), {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ runWithUI })
-                    });
-                    
-                    console.log('Response status:', response.status);
-                    console.log('Response headers:', response.headers);
-                    
-                    if (!response.ok) {
-                      const errorText = await response.text();
-                      console.error('Response error:', errorText);
-                      alert(`Server error (${response.status}): ${errorText}`);
-                      return;
-                    }
-                    
-                    const result = await response.json();
-                    console.log('Browser test result:', result);
-                    
-                    const message = `Browser test ${result.success ? 'SUCCESS' : 'FAILED'}
-Output: ${result.output || 'No output'}
-Error: ${result.error || 'No errors'}
-Exit code: ${result.code}`;
-                    
-                    alert(message);
-                  } catch (error) {
-                    console.error('Browser test error:', error);
-                    alert(`Browser test error: ${error.message}`);
-                  }
-                }}
-                className="text-xs"
-              >
-                Test Browser
-              </Button>
-            </div>
-          </div>
-        </div>
 
         {/* Test Mode Toggle */}
         <div className="space-y-2">
