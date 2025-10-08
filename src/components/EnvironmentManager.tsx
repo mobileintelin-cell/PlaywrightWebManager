@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
 import { Switch } from './ui/switch';
 import { Settings, Plus, Edit, Trash2, Save, X, Globe, Code, TestTube, Users } from 'lucide-react';
+import { getApiUrl } from '../config/api';
 
 interface Environment {
   id: string;
@@ -48,7 +49,7 @@ export function EnvironmentManager({ onEnvironmentChange }: EnvironmentManagerPr
   const fetchEnvironmentConfig = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('http://localhost:3001/api/environments');
+      const response = await fetch(getApiUrl('/api/environments'));
       if (response.ok) {
         const data = await response.json();
         setEnvironmentConfig(data);
@@ -66,7 +67,7 @@ export function EnvironmentManager({ onEnvironmentChange }: EnvironmentManagerPr
     
     setIsSaving(true);
     try {
-      const response = await fetch('http://localhost:3001/api/environments', {
+      const response = await fetch(getApiUrl('/api/environments'), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -90,7 +91,7 @@ export function EnvironmentManager({ onEnvironmentChange }: EnvironmentManagerPr
     
     setIsSaving(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/environments/${envId}`, {
+      const response = await fetch(getApiUrl(`/api/environments/${envId}`), {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',

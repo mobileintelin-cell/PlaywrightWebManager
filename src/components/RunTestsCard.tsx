@@ -10,6 +10,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Play, Globe, User, Lock, FileText, HelpCircle, Download, Settings, Code, TestTube, Users } from "lucide-react";
+import { getApiUrl } from '../config/api';
 
 interface IndividualTestCase {
   id: string;
@@ -172,7 +173,7 @@ export function RunTestsCard({
   const fetchEnvironmentConfig = async () => {
     setIsLoadingEnvironments(true);
     try {
-      const response = await fetch('http://localhost:3001/api/environments');
+      const response = await fetch(getApiUrl('/api/environments'));
       if (response.ok) {
         const data = await response.json();
         console.log('Environment config loaded:', data);
@@ -647,7 +648,7 @@ pause
                   try {
                     // First test if server is responding
                     console.log('Testing server connection...');
-                    const testResponse = await fetch('http://localhost:3001/api/test');
+                    const testResponse = await fetch(getApiUrl('/api/test'));
                     if (!testResponse.ok) {
                       alert(`Server not responding (${testResponse.status})`);
                       return;
@@ -657,7 +658,7 @@ pause
                     
                     // Now test browser
                     console.log('Testing browser with runWithUI:', runWithUI);
-                    const response = await fetch('http://localhost:3001/api/test-browser', {
+                    const response = await fetch(getApiUrl('/api/test-browser'), {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json' },
                       body: JSON.stringify({ runWithUI })

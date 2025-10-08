@@ -4,6 +4,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Terminal, ArrowDown, Maximize2, Minimize2, Activity, Wifi, WifiOff } from "lucide-react";
+import { getWsUrl } from '../config/api';
 
 interface LiveLogsCardProps {
   logs: string[];
@@ -40,8 +41,8 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
   // WebSocket connection for real-time command monitoring
   useEffect(() => {
     const connectWebSocket = () => {
-      // Use explicit localhost URL for development
-      const wsUrl = 'ws://localhost:3001';
+      // Use configured WebSocket URL
+      const wsUrl = getWsUrl();
       
       console.log('LiveLogsCard: Attempting to connect to:', wsUrl);
       wsRef.current = new WebSocket(wsUrl);
@@ -69,7 +70,7 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
       
       wsRef.current.onerror = (error) => {
         console.error('LiveLogsCard: WebSocket error:', error);
-        console.error('LiveLogsCard: Make sure server is running on localhost:3001');
+        console.error('LiveLogsCard: Make sure server is running on', getWsUrl());
         setIsConnected(false);
       };
     };

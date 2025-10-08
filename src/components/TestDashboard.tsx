@@ -8,6 +8,7 @@ import { LiveLogsCard } from "./LiveLogsCard";
 import { EnvironmentManager } from "./EnvironmentManager";
 import { NotificationSystem, useNotifications } from "./NotificationSystem";
 import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square, Settings, Play, MoreVertical, Menu } from "lucide-react";
+import { getApiUrl } from '../config/api';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "./ui/dropdown-menu";
 import {
   DndContext,
@@ -82,7 +83,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     setIsLoadingTests(true);
     setTestError(null);
     try {
-      const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/tests`);
+      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/tests`));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -121,7 +122,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
   const fetchCachedTestStatus = async () => {
     setIsLoadingCache(true);
     try {
-      const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/test-status`);
+      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/test-status`));
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -231,7 +232,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
       
       console.log('TestDashboard: Sending request body:', JSON.stringify(requestBody, null, 2));
       
-      const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/run-tests`, {
+      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/run-tests`), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -334,7 +335,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     addLog(`Opening test file: ${filename}`);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/test-file/${filename}`);
+      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/test-file/${filename}`));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -416,7 +417,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
     addLog(`Opening latest test report for ${selectedProject}...`);
     
     try {
-      const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/report`);
+      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/report`));
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -435,7 +436,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
       addLog(`Opening report in new window...`);
       
       // Open the report in a new window
-      const reportUrl = `http://localhost:3001${latestReport.url}`;
+      const reportUrl = `${getApiUrl('')}${latestReport.url}`;
       const newWindow = window.open(reportUrl, '_blank');
       
       if (!newWindow) {
@@ -488,7 +489,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
 
   const handleClearCache = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/test-status`, {
+      const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/test-status`), {
         method: 'DELETE'
       });
       
@@ -810,7 +811,7 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
                 <DropdownMenuItem onClick={async () => {
                   addLog('Starting Playwright report server...');
                   try {
-                    const response = await fetch(`http://localhost:3001/api/projects/${selectedProject}/start-report`, {
+                    const response = await fetch(getApiUrl(`/api/projects/${selectedProject}/start-report`), {
                       method: 'POST'
                     });
                     

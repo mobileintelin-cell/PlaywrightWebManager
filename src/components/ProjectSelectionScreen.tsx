@@ -7,6 +7,7 @@ import { Badge } from "./ui/badge";
 import { Textarea } from "./ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
 import { Folder, Search, RefreshCw, ArrowRight, Play, FileText, Wifi, WifiOff, AlertCircle, Plus, Loader2 } from "lucide-react";
+import { getApiUrl } from '../config/api';
 
 interface ProjectSelectionScreenProps {
   onProjectSelect: (project: string) => void;
@@ -44,8 +45,8 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
     setError(null);
     try {
       const url = query 
-        ? `http://localhost:3001/api/projects/search?q=${encodeURIComponent(query)}`
-        : 'http://localhost:3001/api/projects';
+        ? getApiUrl(`/api/projects/search?q=${encodeURIComponent(query)}`)
+        : getApiUrl('/api/projects');
       
       const response = await fetch(url);
       
@@ -60,7 +61,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
       const projectsWithCache = await Promise.all(
         data.map(async (project: ProjectFolder) => {
           try {
-            const cacheResponse = await fetch(`http://localhost:3001/api/projects/${project.name}/test-status`);
+            const cacheResponse = await fetch(getApiUrl(`/api/projects/${project.name}/test-status`));
             if (cacheResponse.ok) {
               const cacheData = await cacheResponse.json();
               if (cacheData.hasCache) {
@@ -108,7 +109,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
     
     setIsCreatingProject(true);
     try {
-      const response = await fetch('http://localhost:3001/api/projects/create', {
+      const response = await fetch(getApiUrl('/api/projects/create'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
