@@ -3,12 +3,10 @@ import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
-import { Checkbox } from "./ui/checkbox";
-import { ScrollArea } from "./ui/scroll-area";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { Play, Globe, User, Lock, FileText, HelpCircle, Download, Settings, Code, TestTube, Users } from "lucide-react";
+import { Play, Globe, User, Lock, HelpCircle, Download, Settings, Code, TestTube, Users } from "lucide-react";
 import { getApiUrl } from '../config/api';
 
 interface IndividualTestCase {
@@ -23,10 +21,10 @@ interface IndividualTestCase {
 interface RunTestsCardProps {
   onRunTests: (config: TestRunConfig) => void;
   isRunning: boolean;
-  testFiles: string[];
   individualTestCases?: IndividualTestCase[];
   onIndividualTestCaseToggle?: (testId: string) => void;
   onToggleAllIndividualTests?: (selectAll: boolean) => void;
+  projectPath?: string | null;
 }
 
 export interface TestRunConfig {
@@ -38,6 +36,7 @@ export interface TestRunConfig {
   environment: string;
   testExecutionOrder?: string[];
   runMode?: 'files' | 'individual';
+  runWithUI?: boolean;
 }
 
 interface Environment {
@@ -67,12 +66,11 @@ interface EnvironmentConfig {
 export function RunTestsCard({ 
   onRunTests, 
   isRunning, 
-  testFiles, 
   individualTestCases = [], 
   onIndividualTestCaseToggle,
-  onToggleAllIndividualTests 
+  onToggleAllIndividualTests,
+  projectPath
 }: RunTestsCardProps) {
-  const [selectedTestFiles, setSelectedTestFiles] = useState([]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [environment, setEnvironment] = useState('custom');
@@ -80,12 +78,12 @@ export function RunTestsCard({
   const [customUrl, setCustomUrl] = useState('');
   const [environmentConfig, setEnvironmentConfig] = useState(null);
   const [isLoadingEnvironments, setIsLoadingEnvironments] = useState(false);
-  const [testMode, setTestMode] = useState('files');
 
   // Debug: Log when individual test cases change
   useEffect(() => {
     console.log(`RunTestsCard: ${individualTestCases.length} individual test cases available`);
   }, [individualTestCases]);
+
 
   // Load cached values on component mount
   useEffect(() => {
@@ -157,7 +155,11 @@ export function RunTestsCard({
   const fetchEnvironmentConfig = async () => {
     setIsLoadingEnvironments(true);
     try {
-      const response = await fetch(getApiUrl('/environments'));
+      const url = projectPath 
+        ? `${getApiUrl('/environments')}?projectPath=${encodeURIComponent(projectPath)}`
+        : getApiUrl('/environments');
+      
+      const response = await fetch(url);
       if (response.ok) {
         const data = await response.json();
         console.log('Environment config loaded:', data);
@@ -223,10 +225,10 @@ export function RunTestsCard({
     }
   };
 
-  // Load environment configuration on component mount
+  // Load environment configuration on component mount and when projectPath changes
   useEffect(() => {
     fetchEnvironmentConfig();
-  }, []);
+  }, [projectPath]);
 
   // Log cached values when they change (for debugging)
   useEffect(() => {
@@ -404,25 +406,12 @@ pause
     URL.revokeObjectURL(url);
   };
 
-  const handleTestFileToggle = (filename: string, checked: boolean) => {
-    if (checked) {
-      setSelectedTestFiles(prev => [...prev, filename]);
-    } else {
-      setSelectedTestFiles(prev => prev.filter(file => file !== filename));
-    }
-  };
-
-  const handleSelectAll = () => {
-    if (selectedTestFiles.length === testFiles.length) {
-      setSelectedTestFiles([]);
-    } else {
-      setSelectedTestFiles([...testFiles]);
-    }
-  };
 
   const handleRun = () => {
     const selectedIndividualTests = individualTestCases.filter(test => test.selected);
     
+    // Get unique file names from selected individual tests
+    const selectedTestFiles = [...new Set(selectedIndividualTests.map(test => test.fileName))];
     
     onRunTests({
       selectedTestFiles,
@@ -431,12 +420,10 @@ pause
       password,
       websiteUrl: getWebsiteUrl(),
       environment,
-      runMode: testMode
+      runMode: 'individual' // Always use individual mode since we're selecting specific tests
     });
   };
 
-  const isAllSelected = selectedTestFiles.length === testFiles.length;
-  const isSomeSelected = selectedTestFiles.length > 0 && selectedTestFiles.length < testFiles.length;
 
   return (
     <Card className="h-fit">
@@ -604,121 +591,6 @@ pause
         </div>
 
 
-        {/* Test Mode Toggle */}
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Test Selection Mode</Label>
-          <div className="flex gap-2">
-            <Button
-              variant={testMode === 'files' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTestMode('files')}
-              className="flex-1"
-            >
-              <FileText className="w-4 h-4 mr-2" />
-              Test Files
-            </Button>
-            <Button
-              variant={testMode === 'individual' ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setTestMode('individual')}
-              className="flex-1"
-              disabled={individualTestCases.length === 0}
-            >
-              <Play className="w-4 h-4 mr-2" />
-              Individual Tests
-            </Button>
-          </div>
-        </div>
-
-        {/* Test Files Section */}
-        {testMode === 'files' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-2">
-                <FileText className="w-4 h-4" />
-                Test Files ({selectedTestFiles.length}/{testFiles.length})
-              </Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSelectAll}
-                className="text-xs"
-              >
-                {isAllSelected ? 'Deselect All' : 'Select All'}
-              </Button>
-            </div>
-          
-          <ScrollArea className="h-48 border rounded-md p-2">
-            <div className="space-y-2">
-              {testFiles.map((file) => (
-                <div key={file} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={file}
-                    checked={selectedTestFiles.includes(file)}
-                    onCheckedChange={(checked) => handleTestFileToggle(file, checked as boolean)}
-                  />
-                  <Label 
-                    htmlFor={file} 
-                    className="text-sm cursor-pointer flex-1 leading-relaxed"
-                  >
-                    {file}
-                  </Label>
-                </div>
-              ))}
-            </div>
-          </ScrollArea>
-          </div>
-        )}
-
-        {/* Individual Tests Section */}
-        {testMode === 'individual' && (
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="flex items-center gap-2">
-                <Play className="w-4 h-4" />
-                Individual Tests ({individualTestCases.filter(t => t.selected).length}/{individualTestCases.length})
-              </Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => onToggleAllIndividualTests?.(!individualTestCases.every(t => t.selected))}
-                className="text-xs"
-                disabled={individualTestCases.length === 0}
-              >
-                {individualTestCases.every(t => t.selected) ? 'Deselect All' : 'Select All'}
-              </Button>
-            </div>
-            
-            <ScrollArea className="h-48 border rounded-md p-2">
-              <div className="space-y-2">
-                {individualTestCases.length === 0 ? (
-                  <div className="text-sm text-muted-foreground text-center py-4">
-                    No individual tests available. Switch to "Test Files" mode or refresh the test data.
-                  </div>
-                ) : (
-                  individualTestCases.map((testCase) => (
-                    <div key={testCase.id} className="flex items-center space-x-2">
-                      <Checkbox
-                        id={testCase.id}
-                        checked={testCase.selected}
-                        onCheckedChange={() => onIndividualTestCaseToggle?.(testCase.id)}
-                      />
-                      <Label 
-                        htmlFor={testCase.id} 
-                        className="text-sm cursor-pointer flex-1 leading-relaxed"
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-medium">{testCase.testName}</span>
-                          <span className="text-xs text-muted-foreground">{testCase.fileName}</span>
-                        </div>
-                      </Label>
-                    </div>
-                  ))
-                )}
-              </div>
-            </ScrollArea>
-          </div>
-        )}
         
         <Button 
           onClick={handleRun} 
@@ -726,18 +598,14 @@ pause
             isRunning || 
             !environment || 
             (environment === 'custom' && !customUrl) ||
-            (testMode === 'files' && selectedTestFiles.length === 0) ||
-            (testMode === 'individual' && individualTestCases.filter(t => t.selected).length === 0)
+            individualTestCases.filter(t => t.selected).length === 0
           }
           className="w-full"
         >
           <Play className="w-4 h-4 mr-2" />
           {isRunning ? 'Running...' : (() => {
-            const count = testMode === 'files' 
-              ? selectedTestFiles.length 
-              : individualTestCases.filter(t => t.selected).length;
-            const type = testMode === 'files' ? 'File' : 'Test';
-            return `Run ${count} ${type}${count !== 1 ? 's' : ''}`;
+            const count = individualTestCases.filter(t => t.selected).length;
+            return `Run ${count} Test${count !== 1 ? 's' : ''}`;
           })()}
         </Button>
         
@@ -747,15 +615,9 @@ pause
           </p>
         )}
         
-        {testMode === 'files' && selectedTestFiles.length === 0 && (
+        {individualTestCases.filter(t => t.selected).length === 0 && (
           <p className="text-sm text-muted-foreground">
-            Please select at least one test file to run.
-          </p>
-        )}
-        
-        {testMode === 'individual' && individualTestCases.filter(t => t.selected).length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Please select at least one individual test to run.
+            Please select at least one test to run.
           </p>
         )}
         

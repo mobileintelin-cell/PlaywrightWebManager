@@ -32,6 +32,7 @@ import { CSS } from '@dnd-kit/utilities';
 
 interface TestDashboardProps {
   selectedProject: string;
+  selectedProjectPath?: string | null;
   onBackToProjectSelection: () => void;
 }
 
@@ -60,7 +61,7 @@ interface IndividualTestCase {
   order: number;
 }
 
-export function TestDashboard({ selectedProject, onBackToProjectSelection }: TestDashboardProps) {
+export function TestDashboard({ selectedProject, selectedProjectPath, onBackToProjectSelection }: TestDashboardProps) {
   const [status, setStatus] = useState('idle');
   const [logs, setLogs] = useState([]);
   const [testResults, setTestResults] = useState({});
@@ -872,16 +873,19 @@ export function TestDashboard({ selectedProject, onBackToProjectSelection }: Tes
           <RunTestsCard 
             onRunTests={handleRunTests} 
             isRunning={status === 'running'}
-            testFiles={testFiles}
             individualTestCases={individualTestCases}
             onIndividualTestCaseToggle={toggleTestCaseSelection}
             onToggleAllIndividualTests={toggleAllTestCases}
+            projectPath={selectedProjectPath}
           />
           {showQuickActions && (
             <QuickActionsCard
               onOpenTestFile={handleOpenTestFile}
               testFiles={testFiles}
               testResults={testResults}
+              individualTestCases={individualTestCases}
+              onIndividualTestCaseToggle={toggleTestCaseSelection}
+              onToggleAllIndividualTests={toggleAllTestCases}
             />
           )}
         </div>

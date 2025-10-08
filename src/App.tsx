@@ -7,15 +7,18 @@ type AppScreen = 'project-selection' | 'test-dashboard';
 export default function App() {
   const [currentScreen, setCurrentScreen] = useState<AppScreen>('project-selection');
   const [selectedProject, setSelectedProject] = useState<string | null>(null);
+  const [selectedProjectPath, setSelectedProjectPath] = useState<string | null>(null);
 
-  const handleProjectSelect = (projectName: string) => {
+  const handleProjectSelect = (projectName: string, projectPath?: string) => {
     setSelectedProject(projectName);
+    setSelectedProjectPath(projectPath || null);
     setCurrentScreen('test-dashboard');
   };
 
   const handleBackToProjectSelection = () => {
     setCurrentScreen('project-selection');
     setSelectedProject(null);
+    setSelectedProjectPath(null);
   };
 
   if (currentScreen === 'project-selection') {
@@ -26,6 +29,7 @@ export default function App() {
     return (
       <TestDashboard 
         selectedProject={selectedProject}
+        selectedProjectPath={selectedProjectPath}
         onBackToProjectSelection={handleBackToProjectSelection}
       />
     );

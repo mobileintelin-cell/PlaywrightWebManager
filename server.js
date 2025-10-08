@@ -254,13 +254,49 @@ const searchCommandLogs = (query, filters = {}) => {
 // Environment configuration
 let environmentConfig = null;
 
-// Load environment configuration
-const loadEnvironmentConfig = async () => {
+// Load environment configuration from target Playwright folder
+const loadEnvironmentConfig = async (projectPath = null) => {
   try {
-    const configPath = path.join(__dirname, 'environments.json');
-    const configData = await fs.readFile(configPath, 'utf8');
-    environmentConfig = JSON.parse(configData);
-    console.log('Environment configuration loaded successfully');
+    let configPath;
+    
+    if (projectPath) {
+      // Try to load from specific project folder first
+      configPath = path.join(projectPath, 'env.json');
+    } else {
+      // Fallback to server root
+      configPath = path.join(__dirname, 'environments.json');
+    }
+    
+    console.log(`Attempting to load environment config from: ${configPath}`);
+    
+    try {
+      const configData = await fs.readFile(configPath, 'utf8');
+      const rawConfig = JSON.parse(configData);
+      
+      // Convert from simple format to full format if needed
+      if (rawConfig.env) {
+        console.log('Converting simple env format to full environment config');
+        environmentConfig = convertSimpleEnvToFullConfig(rawConfig);
+      } else {
+        environmentConfig = rawConfig;
+      }
+      
+      console.log('Environment configuration loaded successfully from:', configPath);
+    } catch (readError) {
+      console.log(`Config file not found at ${configPath}, generating new one`);
+      
+      // Generate new config file in the project folder
+      if (projectPath) {
+        await generateEnvironmentConfig(projectPath);
+        // Try to load the newly created config
+        const newConfigData = await fs.readFile(configPath, 'utf8');
+        const rawConfig = JSON.parse(newConfigData);
+        environmentConfig = convertSimpleEnvToFullConfig(rawConfig);
+        console.log('New environment configuration generated and loaded');
+      } else {
+        throw readError; // Re-throw if we can't generate in project folder
+      }
+    }
   } catch (error) {
     console.error('Error loading environment configuration:', error);
     // Fallback configuration
@@ -288,6 +324,119 @@ const loadEnvironmentConfig = async () => {
       }
     };
   }
+};
+
+// Convert simple env format to full environment configuration
+const convertSimpleEnvToFullConfig = (simpleConfig) => {
+  const env = simpleConfig.env || {};
+  
+  const environments = {};
+  
+  // Convert each environment
+  Object.entries(env).forEach(([envId, url]) => {
+    environments[envId] = {
+      id: envId,
+      name: getEnvironmentDisplayName(envId),
+      description: getEnvironmentDescription(envId),
+      url: url || "",
+      defaultUrl: url || getDefaultUrlForEnvironment(envId),
+      requiresUrl: envId === 'custom',
+      color: getEnvironmentColor(envId),
+      icon: getEnvironmentIcon(envId)
+    };
+  });
+  
+  return {
+    environments,
+    defaultEnvironment: "custom",
+    errorContext: {
+      enabled: true,
+      captureScreenshots: true,
+      captureVideos: true,
+      captureTraces: true,
+      maxRetries: 2,
+      timeout: 30000
+    }
+  };
+};
+
+// Generate new environment configuration file
+const generateEnvironmentConfig = async (projectPath) => {
+  const configPath = path.join(projectPath, 'env.json');
+  
+  const defaultConfig = {
+    "env": {
+      "custom": "",
+      "dev": "",
+      "stg": "",
+      "uat": "",
+      "prod": ""
+    }
+  };
+  
+  try {
+    await fs.writeFile(configPath, JSON.stringify(defaultConfig, null, 2));
+    console.log(`Generated new environment config at: ${configPath}`);
+  } catch (error) {
+    console.error('Error generating environment config:', error);
+    throw error;
+  }
+};
+
+// Helper functions for environment configuration
+const getEnvironmentDisplayName = (envId) => {
+  const names = {
+    'custom': 'Custom',
+    'dev': 'Development',
+    'stg': 'Staging',
+    'uat': 'UAT',
+    'prod': 'Production'
+  };
+  return names[envId] || envId.charAt(0).toUpperCase() + envId.slice(1);
+};
+
+const getEnvironmentDescription = (envId) => {
+  const descriptions = {
+    'custom': 'Custom environment with user-defined URL',
+    'dev': 'Development environment',
+    'stg': 'Staging environment for testing',
+    'uat': 'User Acceptance Testing environment',
+    'prod': 'Production environment'
+  };
+  return descriptions[envId] || `${envId} environment`;
+};
+
+const getDefaultUrlForEnvironment = (envId) => {
+  const urls = {
+    'custom': 'http://localhost:3000',
+    'dev': 'http://localhost:3000',
+    'stg': 'https://staging.example.com',
+    'uat': 'https://uat.example.com',
+    'prod': 'https://example.com'
+  };
+  return urls[envId] || 'http://localhost:3000';
+};
+
+const getEnvironmentColor = (envId) => {
+  const colors = {
+    'custom': '#6b7280',
+    'dev': '#10b981',
+    'stg': '#f59e0b',
+    'uat': '#8b5cf6',
+    'prod': '#ef4444'
+  };
+  return colors[envId] || '#6b7280';
+};
+
+const getEnvironmentIcon = (envId) => {
+  const icons = {
+    'custom': 'settings',
+    'dev': 'code',
+    'stg': 'test-tube',
+    'uat': 'users',
+    'prod': 'globe'
+  };
+  return icons[envId] || 'globe';
 };
 
 // Save environment configuration
@@ -1054,9 +1203,9 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       });
     }
     
-    // Load environment configuration if not already loaded
+    // Load environment configuration from project folder if not already loaded
     if (!environmentConfig) {
-      await loadEnvironmentConfig();
+      await loadEnvironmentConfig(projectPath);
     }
     
     // Determine the project configuration based on environment
@@ -1768,8 +1917,10 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
 // API endpoint to get environment configuration
 app.get('/api/environments', async (req, res) => {
   try {
+    const { projectPath } = req.query;
+    
     if (!environmentConfig) {
-      await loadEnvironmentConfig();
+      await loadEnvironmentConfig(projectPath);
     }
     
     res.json({

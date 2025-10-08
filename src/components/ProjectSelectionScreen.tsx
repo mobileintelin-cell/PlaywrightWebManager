@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -10,7 +10,7 @@ import { Folder, Search, RefreshCw, ArrowRight, Play, FileText, Wifi, WifiOff, A
 import { getApiUrl } from '../config/api';
 
 interface ProjectSelectionScreenProps {
-  onProjectSelect: (project: string) => void;
+  onProjectSelect: (project: string, projectPath?: string) => void;
 }
 
 interface ProjectFolder {
@@ -136,7 +136,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
       setNewProjectDescription('');
       
       // Navigate to the new project
-      onProjectSelect(data.project.name);
+      onProjectSelect(data.project.name, data.project.path);
       
     } catch (error) {
       console.error('Error creating project:', error);
@@ -412,7 +412,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
                 <Card 
                   key={project.path}
                   className="hover:shadow-md transition-shadow cursor-pointer group"
-                  onClick={() => onProjectSelect(project.name)}
+                  onClick={() => onProjectSelect(project.name, project.path)}
                 >
                   <CardContent className="p-6">
                     <div className="flex items-start justify-between">
@@ -463,7 +463,7 @@ export function ProjectSelectionScreen({ onProjectSelect }: ProjectSelectionScre
                         variant="outline"
                         onClick={(e) => {
                           e.stopPropagation();
-                          onProjectSelect(project.name);
+                          onProjectSelect(project.name, project.path);
                         }}
                       >
                         <Play className="w-4 h-4 mr-2" />
