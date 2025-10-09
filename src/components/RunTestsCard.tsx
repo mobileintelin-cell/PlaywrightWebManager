@@ -6,7 +6,7 @@ import { Label } from "./ui/label";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
-import { Play, Globe, User, Lock, HelpCircle, Download, Settings, Code, TestTube, Users } from "lucide-react";
+import { Play, Globe, User, Lock, HelpCircle, Download, Settings, Code, TestTube, Users, Edit2, Check, X } from "lucide-react";
 import { getApiUrl } from '../config/api';
 
 interface IndividualTestCase {
@@ -78,6 +78,8 @@ export function RunTestsCard({
   const [customUrl, setCustomUrl] = useState('');
   const [environmentConfig, setEnvironmentConfig] = useState(null);
   const [isLoadingEnvironments, setIsLoadingEnvironments] = useState(false);
+  const [editingUrls, setEditingUrls] = useState({});
+  const [isSavingUrl, setIsSavingUrl] = useState(false);
 
   // Debug: Log when individual test cases change
   useEffect(() => {
@@ -120,6 +122,126 @@ export function RunTestsCard({
     }
   };
 
+  const handleUrlEdit = (envId: string, url: string) => {
+    console.log('handleUrlEdit called:', {
+      envId,
+      url,
+      environmentConfig: environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none',
+      isLoadingEnvironments
+    });
+    
+    if (!environmentConfig || !environmentConfig.environments || !environmentConfig.environments[envId]) {
+      console.error('Cannot edit URL: Environment configuration not loaded or environment not found');
+      alert('Environment configuration not loaded. Please wait and try again.');
+      return;
+    }
+    
+    setEditingUrls(prev => ({
+      ...prev,
+      [envId]: url
+    }));
+  };
+
+  const handleUrlSave = async (envId: string) => {
+    if (!editingUrls[envId]) return;
+    
+    if (!environmentConfig || !environmentConfig.environments || !environmentConfig.environments[envId]) {
+      console.error('Environment configuration not loaded or environment not found:', {
+        envId,
+        environmentConfig,
+        availableEnvironments: environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none'
+      });
+      
+      // Try to reload environment configuration
+      console.log('Attempting to reload environment configuration...');
+      await fetchEnvironmentConfig();
+      
+      // Check again after reload
+      if (!environmentConfig || !environmentConfig.environments || !environmentConfig.environments[envId]) {
+        alert('Environment configuration not loaded. Please refresh the page and try again.');
+        return;
+      }
+    }
+    
+    setIsSavingUrl(true);
+    try {
+      const url = getApiUrl(`/environments/${envId}`);
+      const body = {
+        url: editingUrls[envId],
+        projectPath: projectPath
+      };
+      
+      console.log('Saving environment URL:', {
+        envId,
+        url,
+        body,
+        editingUrls,
+        environmentConfig: environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none',
+        projectPath: projectPath
+      });
+      
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      });
+
+      console.log('Response received:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        url: response.url
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('Error response body:', errorText);
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      console.log('Environment URL updated:', result);
+
+      // Update local environment config
+      setEnvironmentConfig(prev => ({
+        ...prev,
+        environments: {
+          ...prev.environments,
+          [envId]: {
+            ...prev.environments[envId],
+            url: editingUrls[envId]
+          }
+        }
+      }));
+
+      // Clear editing state
+      setEditingUrls(prev => {
+        const newState = { ...prev };
+        delete newState[envId];
+        return newState;
+      });
+
+    } catch (error) {
+      console.error('Error saving environment URL:', error);
+      const errorMessage = error.message.includes('404') 
+        ? `Environment "${envId}" not found. Please refresh the page and try again.`
+        : 'Failed to save environment URL. Please try again.';
+      alert(errorMessage);
+    } finally {
+      setIsSavingUrl(false);
+    }
+  };
+
+  const handleUrlCancel = (envId: string) => {
+    setEditingUrls(prev => {
+      const newState = { ...prev };
+      delete newState[envId];
+      return newState;
+    });
+  };
+
   // Cache username whenever it changes
   const handleUsernameChange = (value: string) => {
     setUsername(value);
@@ -159,17 +281,36 @@ export function RunTestsCard({
         ? `${getApiUrl('/environments')}?projectPath=${encodeURIComponent(projectPath)}`
         : getApiUrl('/environments');
       
+      console.log('Fetching environment config from:', url);
+      console.log('Project path:', projectPath);
+      
       const response = await fetch(url);
+      console.log('Environment config response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok
+      });
+      
       if (response.ok) {
         const data = await response.json();
-        console.log('Environment config loaded:', data);
+        console.log('Environment config loaded successfully:', {
+          success: data.success,
+          environments: Object.keys(data.environments || {}),
+          defaultEnvironment: data.defaultEnvironment
+        });
         setEnvironmentConfig(data);
         if (data.defaultEnvironment) {
           setEnvironment(data.defaultEnvironment);
         }
       } else {
-        console.error('Failed to fetch environment config:', response.status, response.statusText);
-        // Set fallback configuration
+        const errorText = await response.text();
+        console.error('Failed to fetch environment config:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText,
+          url
+        });
+        // Set fallback configuration with all standard environments
         setEnvironmentConfig({
           environments: {
             custom: {
@@ -181,6 +322,46 @@ export function RunTestsCard({
               requiresUrl: true,
               color: "#6b7280",
               icon: "settings"
+            },
+            dev: {
+              id: "dev",
+              name: "Development",
+              description: "Development environment",
+              url: "http://localhost:3000",
+              defaultUrl: "http://localhost:3000",
+              requiresUrl: false,
+              color: "#10b981",
+              icon: "code"
+            },
+            staging: {
+              id: "staging",
+              name: "Staging",
+              description: "Staging environment for testing",
+              url: "https://staging.example.com",
+              defaultUrl: "https://staging.example.com",
+              requiresUrl: false,
+              color: "#f59e0b",
+              icon: "test-tube"
+            },
+            uat: {
+              id: "uat",
+              name: "UAT",
+              description: "User Acceptance Testing environment",
+              url: "https://uat.example.com",
+              defaultUrl: "https://uat.example.com",
+              requiresUrl: false,
+              color: "#8b5cf6",
+              icon: "users"
+            },
+            production: {
+              id: "production",
+              name: "Production",
+              description: "Production environment",
+              url: "https://example.com",
+              defaultUrl: "https://example.com",
+              requiresUrl: false,
+              color: "#ef4444",
+              icon: "globe"
             }
           },
           defaultEnvironment: "custom",
@@ -196,7 +377,7 @@ export function RunTestsCard({
       }
     } catch (error) {
       console.error('Error fetching environment config:', error);
-      // Set fallback configuration
+      // Set fallback configuration with all standard environments
       setEnvironmentConfig({
         environments: {
           custom: {
@@ -208,6 +389,46 @@ export function RunTestsCard({
             requiresUrl: true,
             color: "#6b7280",
             icon: "settings"
+          },
+          dev: {
+            id: "dev",
+            name: "Development",
+            description: "Development environment",
+            url: "http://localhost:3000",
+            defaultUrl: "http://localhost:3000",
+            requiresUrl: false,
+            color: "#10b981",
+            icon: "code"
+          },
+          staging: {
+            id: "staging",
+            name: "Staging",
+            description: "Staging environment for testing",
+            url: "https://staging.example.com",
+            defaultUrl: "https://staging.example.com",
+            requiresUrl: false,
+            color: "#f59e0b",
+            icon: "test-tube"
+          },
+          uat: {
+            id: "uat",
+            name: "UAT",
+            description: "User Acceptance Testing environment",
+            url: "https://uat.example.com",
+            defaultUrl: "https://uat.example.com",
+            requiresUrl: false,
+            color: "#8b5cf6",
+            icon: "users"
+          },
+          production: {
+            id: "production",
+            name: "Production",
+            description: "Production environment",
+            url: "https://example.com",
+            defaultUrl: "https://example.com",
+            requiresUrl: false,
+            color: "#ef4444",
+            icon: "globe"
           }
         },
         defaultEnvironment: "custom",
@@ -227,6 +448,7 @@ export function RunTestsCard({
 
   // Load environment configuration on component mount and when projectPath changes
   useEffect(() => {
+    console.log('RunTestsCard: Loading environment configuration, projectPath:', projectPath);
     fetchEnvironmentConfig();
   }, [projectPath]);
 
@@ -443,11 +665,12 @@ pause
               onValueChange={(value) => {
                 try {
                   console.log('Environment changed to:', value);
+                  console.log('Current environment config:', environmentConfig);
                   // Validate that the environment exists in the config
                   if (environmentConfig?.environments?.[value] || value === 'custom') {
                     handleEnvironmentChange(value);
                   } else {
-                    console.warn('Invalid environment selected:', value);
+                    console.warn('Invalid environment selected:', value, 'Available environments:', Object.keys(environmentConfig?.environments || {}));
                     handleEnvironmentChange('custom');
                   }
                 } catch (error) {
@@ -485,81 +708,149 @@ pause
                 )}
               </SelectContent>
             </Select>
-            {environmentConfig?.environments?.[environment]?.requiresUrl && (
-              <div className="mt-2 flex gap-2">
-                <Input
-                  id="custom-url"
-                  type="url"
-                  value={customUrl}
-                  onChange={(e) => handleCustomUrlChange(e.target.value)}
-                  placeholder="https://example.com"
-                  className="flex-1"
-                />
-                <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
-                  <DialogTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="icon"
-                      className="shrink-0"
-                      title="Hướng dẫn cài đặt"
-                    >
-                      <HelpCircle className="w-4 h-4" />
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent className="max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>Hướng dẫn cài đặt Custom URL</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4">
-                      <div className="space-y-2">
-                        <h4>Bước thực hiện:</h4>
-                        <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
-                          <li>Tải file script phù hợp với hệ điều hành</li>
-                          <li><strong>Linux:</strong> Di chuyển vào thư mục home (~)</li>
-                          <li><strong>Windows:</strong> Di chuyển vào Desktop</li>
-                          <li>Chạy file script</li>
-                          <li>Done! ✅</li>
-                        </ol>
-                      </div>
-                      
-                      <div className="space-y-3">
-                        <h4>Tải script cài đặt:</h4>
-                        <div className="flex gap-2">
-                          <Button
-                            onClick={downloadLinuxScript}
-                            variant="outline"
-                            className="flex-1"
-                          >
-                            <Download className="w-4 h-4 mr-2" />
-                            Linux
-                          </Button>
-                          <Button
-                            onClick={downloadWindowsScript}
-                            variant="outline"
-                            className="flex-1"
-                          >
-                            <Download className="w-4 h-4 mr-2" />
-                            Windows
-                          </Button>
+            {/* URL Configuration Section */}
+            <div className="mt-2 space-y-2">
+              <Label className="flex items-center gap-2 text-sm font-medium">
+                <Globe className="w-4 h-4" />
+                Website URL
+              </Label>
+              
+              {environment === 'custom' ? (
+                <div className="flex gap-2">
+                  <Input
+                    id="custom-url"
+                    type="url"
+                    value={customUrl}
+                    onChange={(e) => handleCustomUrlChange(e.target.value)}
+                    placeholder="https://example.com"
+                    className="flex-1"
+                  />
+                  <Dialog open={showHelpDialog} onOpenChange={setShowHelpDialog}>
+                    <DialogTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        className="shrink-0"
+                        title="Hướng dẫn cài đặt"
+                      >
+                        <HelpCircle className="w-4 h-4" />
+                      </Button>
+                    </DialogTrigger>
+                    <DialogContent className="max-w-md">
+                      <DialogHeader>
+                        <DialogTitle>Hướng dẫn cài đặt Custom URL</DialogTitle>
+                      </DialogHeader>
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <h4>Bước thực hiện:</h4>
+                          <ol className="list-decimal list-inside space-y-1 text-sm text-muted-foreground">
+                            <li>Tải file script phù hợp với hệ điều hành</li>
+                            <li><strong>Linux:</strong> Di chuyển vào thư mục home (~)</li>
+                            <li><strong>Windows:</strong> Di chuyển vào Desktop</li>
+                            <li>Chạy file script</li>
+                            <li>Done! ✅</li>
+                          </ol>
+                        </div>
+                        
+                        <div className="space-y-3">
+                          <h4>Tải script cài đặt:</h4>
+                          <div className="flex gap-2">
+                            <Button
+                              onClick={downloadLinuxScript}
+                              variant="outline"
+                              className="flex-1"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Linux
+                            </Button>
+                            <Button
+                              onClick={downloadWindowsScript}
+                              variant="outline"
+                              className="flex-1"
+                            >
+                              <Download className="w-4 h-4 mr-2" />
+                              Windows
+                            </Button>
+                          </div>
+                        </div>
+                        
+                        <div className="p-3 bg-muted rounded-lg">
+                          <p className="text-sm text-muted-foreground">
+                            <strong>Lưu ý:</strong> Sau khi chạy script, bạn sẽ có thư mục playwright-tests với cấu hình cơ bản để chạy test.
+                          </p>
                         </div>
                       </div>
-                      
-                      <div className="p-3 bg-muted rounded-lg">
-                        <p className="text-sm text-muted-foreground">
-                          <strong>Lưu ý:</strong> Sau khi chạy script, bạn sẽ có thư mục playwright-tests với cấu hình cơ bản để chạy test.
-                        </p>
-                      </div>
+                    </DialogContent>
+                  </Dialog>
+                </div>
+              ) : isLoadingEnvironments ? (
+                <div className="text-sm text-muted-foreground">
+                  Loading environment configuration...
+                </div>
+              ) : environment && environmentConfig?.environments?.[environment] ? (
+                <div className="space-y-2">
+                  {editingUrls[environment] !== undefined ? (
+                    // Editing mode
+                    <div className="flex gap-2">
+                      <Input
+                        type="url"
+                        value={editingUrls[environment]}
+                        onChange={(e) => handleUrlEdit(environment, e.target.value)}
+                        placeholder="https://example.com"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleUrlSave(environment)}
+                        disabled={isSavingUrl}
+                        title="Save URL"
+                      >
+                        <Check className="w-4 h-4" />
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        onClick={() => handleUrlCancel(environment)}
+                        disabled={isSavingUrl}
+                        title="Cancel"
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
                     </div>
-                  </DialogContent>
-                </Dialog>
-              </div>
-            )}
-            {environment && environment !== 'custom' && environmentConfig?.environments?.[environment] && (
-              <div className="text-sm text-muted-foreground mt-1">
-                {environmentConfig.environments[environment].url || environmentConfig.environments[environment].description}
-              </div>
-            )}
+                  ) : (
+                    // Display mode
+                    <div className="flex items-center gap-2 p-2 border rounded-md bg-muted/50">
+                      <span className="flex-1 text-sm text-muted-foreground">
+                        {environmentConfig.environments[environment].url || 'No URL configured'}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => {
+                          console.log('Edit button clicked for environment:', environment);
+                          console.log('Environment config:', environmentConfig?.environments?.[environment]);
+                          console.log('All environments:', environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none');
+                          handleUrlEdit(environment, environmentConfig.environments[environment].url || '');
+                        }}
+                        title="Edit URL"
+                        className="h-6 w-6"
+                        disabled={!environmentConfig?.environments?.[environment]}
+                      >
+                        <Edit2 className="w-3 h-3" />
+                      </Button>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {environmentConfig.environments[environment].description}
+                  </p>
+                </div>
+              ) : null}
+            </div>
           </div>
           
           <div className="space-y-2">

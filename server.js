@@ -440,11 +440,20 @@ const getEnvironmentIcon = (envId) => {
 };
 
 // Save environment configuration
-const saveEnvironmentConfig = async () => {
+const saveEnvironmentConfig = async (projectPath = null) => {
   try {
-    const configPath = path.join(__dirname, 'environments.json');
+    let configPath;
+    
+    if (projectPath) {
+      // Save to project-specific env.json file
+      configPath = path.join(projectPath, 'env.json');
+    } else {
+      // Save to server root environments.json
+      configPath = path.join(__dirname, 'environments.json');
+    }
+    
     await fs.writeFile(configPath, JSON.stringify(environmentConfig, null, 2));
-    console.log('Environment configuration saved successfully');
+    console.log('Environment configuration saved successfully to:', configPath);
   } catch (error) {
     console.error('Error saving environment configuration:', error);
   }
@@ -1298,7 +1307,6 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     console.log(`Running Playwright tests in ${projectPath}`);
     console.log(`Command: npx playwright ${playwrightArgs.join(' ')}`);
     console.log(`Environment: LOCAL=${env.LOCAL}, USERNAME=${env.USERNAME}`);
-    console.log(`UI Mode: ${runWithUI ? 'Headed (browser visible)' : 'Headless (no browser UI)'}`);
     console.log(`Display: ${env.DISPLAY}, Playwright Browsers Path: ${env.PLAYWRIGHT_BROWSERS_PATH}`);
     console.log(`runWithUI value: ${runWithUI} (type: ${typeof runWithUI})`);
     console.log(`Platform: ${process.platform}, Process UID: ${process.getuid ? process.getuid() : 'N/A'}`);
@@ -1345,7 +1353,6 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     commandLog.addLog('info', `Starting Playwright test execution for project: ${projectName}`);
     commandLog.addLog('info', `Command: ${envPrefix}npx playwright ${playwrightArgs.join(' ')}`);
     commandLog.addLog('info', `Environment: ${environment} (${finalUrl})`);
-    commandLog.addLog('info', `UI Mode: ${runWithUI ? 'Headed (browser visible)' : 'Headless (no browser UI)'}`);
     commandLog.addLog('info', `Selected test files: ${selectedTestFiles.join(', ')}`);
     
     // Execute Playwright tests
@@ -1410,7 +1417,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     });
     
     // Handle process completion
-    playwrightProcess.on('close', (code) => {
+    playwrightProcess.on('close', async (code) => {
       const executionTime = Date.now() - startTime;
       
       // Complete the command log
@@ -1427,9 +1434,13 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       try {
         // Try to parse JSON output from Playwright
         const lines = stdout.split('\n');
+        let jsonFound = false;
+        
         for (const line of lines) {
           if (line.trim().startsWith('{') && line.includes('"tests"')) {
             const result = JSON.parse(line);
+            jsonFound = true;
+            
             if (result.tests) {
               result.tests.forEach(test => {
                 const fileName = test.file.split('/').pop();
@@ -1450,26 +1461,203 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
             break;
           }
         }
+        
+        // If no JSON found, try to parse from Playwright report files
+        if (!jsonFound) {
+          console.log('No JSON output found, checking for Playwright report files...');
+          
+          // Try to read from Playwright JSON report first
+          try {
+            const jsonReportPath = path.join(projectPath, 'test-results', 'results.json');
+            const jsonReportExists = await fs.access(jsonReportPath).then(() => true).catch(() => false);
+            
+            if (jsonReportExists) {
+              console.log('Found Playwright JSON report, parsing results...');
+              const jsonReportContent = await fs.readFile(jsonReportPath, 'utf8');
+              const jsonReport = JSON.parse(jsonReportContent);
+              
+              if (jsonReport.suites) {
+                jsonReport.suites.forEach(suite => {
+                  if (suite.specs) {
+                    suite.specs.forEach(spec => {
+                      const fileName = spec.title.split('/').pop() || spec.title;
+                      if (selectedTestFiles.includes(fileName)) {
+                        if (spec.tests) {
+                          spec.tests.forEach(test => {
+                            if (test.results && test.results.length > 0) {
+                              const result = test.results[test.results.length - 1]; // Get latest result
+                              const status = result.status;
+                              
+                              if (status === 'passed') {
+                                parsedResults[fileName] = 'passed';
+                                passedCount++;
+                              } else if (status === 'failed') {
+                                parsedResults[fileName] = 'failed';
+                                failedCount++;
+                              } else {
+                                parsedResults[fileName] = 'skipped';
+                                skippedCount++;
+                              }
+                            }
+                          });
+                        }
+                      }
+                    });
+                  }
+                });
+                
+                jsonFound = true; // Mark as found to skip other parsing
+              }
+            }
+          } catch (jsonReportError) {
+            console.log('Could not read Playwright JSON report:', jsonReportError.message);
+          }
+          
+          // If JSON report not found, try HTML report
+          if (!jsonFound) {
+            try {
+              const reportPath = path.join(projectPath, 'playwright-report', 'index.html');
+              const reportExists = await fs.access(reportPath).then(() => true).catch(() => false);
+              
+              if (reportExists) {
+                console.log('Found Playwright HTML report, parsing results...');
+                const reportContent = await fs.readFile(reportPath, 'utf8');
+                
+                // Parse test results from HTML report
+                selectedTestFiles.forEach(file => {
+                  const filePattern = new RegExp(`"${file}"`, 'g');
+                  const matches = reportContent.match(filePattern);
+                  
+                  if (matches) {
+                    // Look for test status in the HTML
+                    const statusPattern = new RegExp(`"${file}".*?"status":"(passed|failed|skipped)"`, 'g');
+                    const statusMatch = reportContent.match(statusPattern);
+                    
+                    if (statusMatch) {
+                      const status = statusMatch[0].match(/"status":"(passed|failed|skipped)"/)[1];
+                      parsedResults[file] = status;
+                      
+                      if (status === 'passed') passedCount++;
+                      else if (status === 'failed') failedCount++;
+                      else skippedCount++;
+                    } else {
+                      // If no explicit status, use process exit code
+                      const status = code === 0 ? 'passed' : 'failed';
+                      parsedResults[file] = status;
+                      if (status === 'passed') passedCount++;
+                      else failedCount++;
+                    }
+                  } else {
+                    // File not found in report, use process exit code
+                    const status = code === 0 ? 'passed' : 'failed';
+                    parsedResults[file] = status;
+                    if (status === 'passed') passedCount++;
+                    else failedCount++;
+                  }
+                });
+                
+                jsonFound = true; // Mark as found to skip stdout parsing
+              }
+            } catch (reportError) {
+              console.log('Could not read Playwright HTML report:', reportError.message);
+            }
+          }
+        }
+        
+        // If still no JSON found, try to parse from exit code and stdout patterns
+        if (!jsonFound) {
+          console.log('No JSON output found, parsing from stdout patterns...');
+          
+          // Check if process completed successfully
+          const isSuccess = code === 0;
+          
+          // Parse test results from stdout patterns
+          selectedTestFiles.forEach(file => {
+            let fileStatus = 'unknown';
+            
+            // Look for test results in stdout for this specific file
+            const fileLines = lines.filter(line => 
+              line.toLowerCase().includes(file.toLowerCase())
+            );
+            
+            if (fileLines.length > 0) {
+              const fileOutput = fileLines.join(' ');
+              
+              // Check for specific patterns in the file output
+              if (/✗|failed|FAIL|❌|Error|error/gi.test(fileOutput)) {
+                fileStatus = 'failed';
+                failedCount++;
+              } else if (/✓|passed|PASS|✅/gi.test(fileOutput)) {
+                fileStatus = 'passed';
+                passedCount++;
+              } else if (/skipped|SKIP|⏭️/gi.test(fileOutput)) {
+                fileStatus = 'skipped';
+                skippedCount++;
+              } else if (isSuccess) {
+                // If process succeeded and no explicit failure found, assume passed
+                fileStatus = 'passed';
+                passedCount++;
+              } else {
+                // If process failed, assume failed
+                fileStatus = 'failed';
+                failedCount++;
+              }
+            } else {
+              // No specific output for this file, use overall process result
+              if (isSuccess) {
+                fileStatus = 'passed';
+                passedCount++;
+              } else {
+                fileStatus = 'failed';
+                failedCount++;
+              }
+            }
+            
+            parsedResults[file] = fileStatus;
+          });
+        }
+        
       } catch (parseError) {
-        console.error('Error parsing Playwright JSON output:', parseError);
-        // Fallback to simulation if parsing fails
+        console.error('Error parsing Playwright output:', parseError);
+        console.log('Using process exit code for fallback...');
+        
+        // Use process exit code as fallback instead of random
+        const isSuccess = code === 0;
         selectedTestFiles.forEach(file => {
-          const passed = Math.random() < 0.8;
-          parsedResults[file] = passed ? 'passed' : 'failed';
-          if (passed) passedCount++;
-          else failedCount++;
+          const status = isSuccess ? 'passed' : 'failed';
+          parsedResults[file] = status;
+          if (isSuccess) {
+            passedCount++;
+          } else {
+            failedCount++;
+          }
         });
       }
       
-      // If no results parsed, use fallback
+      // If still no results parsed, use process exit code
       if (Object.keys(parsedResults).length === 0) {
+        console.log('No results parsed, using process exit code...');
+        const isSuccess = code === 0;
         selectedTestFiles.forEach(file => {
-          const passed = Math.random() < 0.8;
-          parsedResults[file] = passed ? 'passed' : 'failed';
-          if (passed) passedCount++;
-          else failedCount++;
+          const status = isSuccess ? 'passed' : 'failed';
+          parsedResults[file] = status;
+          if (isSuccess) {
+            passedCount++;
+          } else {
+            failedCount++;
+          }
         });
       }
+      
+      // Log parsed results for debugging
+      console.log('Test result parsing summary:', {
+        totalFiles: selectedTestFiles.length,
+        parsedResults: Object.keys(parsedResults).length,
+        passed: passedCount,
+        failed: failedCount,
+        skipped: skippedCount,
+        results: parsedResults
+      });
       
       // Prepare results
       const testResults = {
@@ -1919,9 +2107,20 @@ app.get('/api/environments', async (req, res) => {
   try {
     const { projectPath } = req.query;
     
+    console.log('GET /api/environments - Request received:', {
+      projectPath,
+      hasEnvironmentConfig: !!environmentConfig
+    });
+    
     if (!environmentConfig) {
+      console.log('Loading environment configuration...');
       await loadEnvironmentConfig(projectPath);
     }
+    
+    console.log('Environment configuration loaded:', {
+      environments: Object.keys(environmentConfig.environments || {}),
+      defaultEnvironment: environmentConfig.defaultEnvironment
+    });
     
     res.json({
       success: true,
@@ -2018,13 +2217,35 @@ app.get('/api/environments/:envId', async (req, res) => {
 app.put('/api/environments/:envId', async (req, res) => {
   try {
     const { envId } = req.params;
-    const { name, description, url, defaultUrl, requiresUrl, color } = req.body;
+    const { name, description, url, defaultUrl, requiresUrl, color, projectPath } = req.body;
+    
+    console.log('PUT /api/environments/:envId - Request received:', {
+      envId,
+      projectPath,
+      hasEnvironmentConfig: !!environmentConfig,
+      availableEnvironments: environmentConfig ? Object.keys(environmentConfig.environments || {}) : 'none'
+    });
     
     if (!environmentConfig) {
-      await loadEnvironmentConfig();
+      console.log('Loading environment configuration for PUT request...');
+      await loadEnvironmentConfig(projectPath);
+    } else {
+      console.log('Environment configuration already loaded, checking if it matches project path...');
+      // If we have a project path, make sure we're using the right config
+      if (projectPath) {
+        console.log('Reloading environment configuration for project path:', projectPath);
+        await loadEnvironmentConfig(projectPath);
+      }
     }
     
+    console.log('Environment configuration after loading:', {
+      environments: Object.keys(environmentConfig.environments || {}),
+      requestedEnv: envId,
+      envExists: !!(environmentConfig.environments && environmentConfig.environments[envId])
+    });
+    
     if (!environmentConfig.environments[envId]) {
+      console.log(`Environment "${envId}" not found in available environments`);
       return res.status(404).json({
         error: 'Environment not found',
         message: `Environment "${envId}" does not exist`
@@ -2042,8 +2263,8 @@ app.put('/api/environments/:envId', async (req, res) => {
       ...(color && { color })
     };
     
-    // Save to file
-    await saveEnvironmentConfig();
+    // Save to file (with project path if provided)
+    await saveEnvironmentConfig(projectPath);
     
     res.json({
       success: true,
