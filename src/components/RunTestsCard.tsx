@@ -6,6 +6,7 @@ import { Label } from "./ui/label";
 
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "./ui/dialog";
+import { Badge } from "./ui/badge";
 import { Play, Globe, User, Lock, HelpCircle, Download, Settings, Code, TestTube, Users, Edit2, Check, X } from "lucide-react";
 import { getApiUrl } from '../config/api';
 
@@ -165,56 +166,106 @@ export function RunTestsCard({
     
     setIsSavingUrl(true);
     try {
-      const url = getApiUrl(`/environments/${envId}`);
-      const body = {
-        url: editingUrls[envId],
-        projectPath: projectPath
-      };
+      const environment = environmentConfig.environments[envId];
       
-      console.log('Saving environment URL:', {
-        envId,
-        url,
-        body,
-        editingUrls,
-        environmentConfig: environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none',
-        projectPath: projectPath
-      });
-      
-      const response = await fetch(url, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-
-      console.log('Response received:', {
-        status: response.status,
-        statusText: response.statusText,
-        ok: response.ok,
-        url: response.url
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('Error response body:', errorText);
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('Environment URL updated:', result);
-
-      // Update local environment config
-      setEnvironmentConfig(prev => ({
-        ...prev,
-        environments: {
-          ...prev.environments,
-          [envId]: {
-            ...prev.environments[envId],
-            url: editingUrls[envId]
-          }
+      // Check if this is a Playwright project environment
+      if (environment.isPlaywrightProject) {
+        console.log('Updating Playwright project environment:', envId);
+        
+        // Update Playwright config instead of environment config
+        const projectName = projectPath?.split('/').pop() || 'default';
+        
+        // Get current Playwright config
+        const configResponse = await fetch(getApiUrl(`/projects/${projectName}/playwright-config`));
+        if (!configResponse.ok) {
+          throw new Error('Failed to load Playwright config');
         }
-      }));
+        
+        const configData = await configResponse.json();
+        const projects = configData.config.projects.map(project => ({
+          name: project.name,
+          baseURL: project.name === envId ? editingUrls[envId] : project.baseURL
+        }));
+        
+        console.log('Updating Playwright config with projects:', projects);
+        
+        // Update Playwright config
+        const updateResponse = await fetch(getApiUrl(`/projects/${projectName}/playwright-config`), {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            configPath: configData.configPath,
+            projects: projects
+          })
+        });
+        
+        if (!updateResponse.ok) {
+          const errorData = await updateResponse.json().catch(() => ({}));
+          throw new Error(errorData.message || `HTTP error! status: ${updateResponse.status}`);
+        }
+        
+        console.log('Playwright config updated successfully');
+        
+        // Reload environment configuration to get updated values
+        await fetchEnvironmentConfig();
+        
+      } else {
+        console.log('Updating traditional environment:', envId);
+        
+        // Use traditional environment configuration update
+        const url = getApiUrl(`/environments/${envId}`);
+        const body = {
+          url: editingUrls[envId],
+          projectPath: projectPath
+        };
+        
+        console.log('Saving environment URL:', {
+          envId,
+          url,
+          body,
+          editingUrls,
+          environmentConfig: environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none',
+          projectPath: projectPath
+        });
+        
+        const response = await fetch(url, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(body),
+        });
+
+        console.log('Response received:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok,
+          url: response.url
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Error response body:', errorText);
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const result = await response.json();
+        console.log('Environment URL updated:', result);
+
+        // Update local environment config
+        setEnvironmentConfig(prev => ({
+          ...prev,
+          environments: {
+            ...prev.environments,
+            [envId]: {
+              ...prev.environments[envId],
+              url: editingUrls[envId]
+            }
+          }
+        }));
+      }
 
       // Clear editing state
       setEditingUrls(prev => {
@@ -273,16 +324,69 @@ export function RunTestsCard({
   };
 
 
-  // Fetch environment configuration
+  // Fetch environment configuration from Playwright config
   const fetchEnvironmentConfig = async () => {
     setIsLoadingEnvironments(true);
     try {
+      // First try to load from Playwright config
+      const projectName = projectPath?.split('/').pop() || 'default';
+      const playwrightUrl = getApiUrl(`/projects/${projectName}/playwright-environments`);
+      
+      console.log('Fetching Playwright environments from:', playwrightUrl);
+      console.log('Project path:', projectPath);
+      
+      const playwrightResponse = await fetch(playwrightUrl);
+      console.log('Playwright environments response:', {
+        status: playwrightResponse.status,
+        statusText: playwrightResponse.statusText,
+        ok: playwrightResponse.ok
+      });
+      
+      if (playwrightResponse.ok) {
+        const playwrightData = await playwrightResponse.json();
+        if (playwrightData.success && playwrightData.environments.length > 0) {
+          console.log('Playwright environments loaded successfully:', {
+            environments: playwrightData.environments.map(env => env.id),
+            defaultEnvironment: playwrightData.defaultEnvironment
+          });
+          
+          // Convert to the expected format
+          const environments = {};
+          playwrightData.environments.forEach(env => {
+            environments[env.id] = {
+              id: env.id,
+              name: env.name,
+              description: env.description,
+              url: env.url,
+              defaultUrl: env.defaultUrl,
+              requiresUrl: env.requiresUrl,
+              color: env.color,
+              icon: env.icon,
+              isPlaywrightProject: env.isPlaywrightProject,
+              baseURL: env.baseURL
+            };
+          });
+          
+          setEnvironmentConfig({
+            environments,
+            defaultEnvironment: playwrightData.defaultEnvironment
+          });
+          
+          if (playwrightData.defaultEnvironment) {
+            setEnvironment(playwrightData.defaultEnvironment);
+          }
+          
+          setIsLoadingEnvironments(false);
+          return;
+        }
+      }
+      
+      // Fallback to original environment config
       const url = projectPath 
         ? `${getApiUrl('/environments')}?projectPath=${encodeURIComponent(projectPath)}`
         : getApiUrl('/environments');
       
-      console.log('Fetching environment config from:', url);
-      console.log('Project path:', projectPath);
+      console.log('Fallback: Fetching environment config from:', url);
       
       const response = await fetch(url);
       console.log('Environment config response:', {
@@ -659,6 +763,11 @@ pause
             <Label htmlFor="environment" className="flex items-center gap-2">
               <Globe className="w-4 h-4" />
               Website URL
+              {environmentConfig?.environments?.[environment]?.isPlaywrightProject && (
+                <Badge variant="outline" className="text-xs">
+                  From Playwright Config
+                </Badge>
+              )}
             </Label>
             <Select 
               value={environmentConfig?.environments?.[environment] ? environment : 'custom'} 
@@ -827,6 +936,11 @@ pause
                       <span className="flex-1 text-sm text-muted-foreground">
                         {environmentConfig.environments[environment].url || 'No URL configured'}
                       </span>
+                      {environmentConfig.environments[environment].isPlaywrightProject && (
+                        <Badge variant="outline" className="text-xs">
+                          Playwright Config
+                        </Badge>
+                      )}
                       <Button
                         type="button"
                         variant="ghost"
@@ -837,7 +951,9 @@ pause
                           console.log('All environments:', environmentConfig?.environments ? Object.keys(environmentConfig.environments) : 'none');
                           handleUrlEdit(environment, environmentConfig.environments[environment].url || '');
                         }}
-                        title="Edit URL"
+                        title={environmentConfig.environments[environment].isPlaywrightProject 
+                          ? "Edit URL in Playwright Config" 
+                          : "Edit URL"}
                         className="h-6 w-6"
                         disabled={!environmentConfig?.environments?.[environment]}
                       >

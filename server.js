@@ -1221,25 +1221,69 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     let playwrightProject = 'chromium'; // Default to chromium instead of local
     let finalUrl = websiteUrl;
     
-    // Get environment configuration
-    const envConfig = environmentConfig.environments[environment];
-    if (envConfig) {
-      // Use environment-specific URL if available, otherwise use provided URL
-      finalUrl = envConfig.url || websiteUrl;
-      // Map environment names to valid Playwright project names
-      if (environment === 'local') {
-        playwrightProject = 'chromium';
-      } else if (environment === 'staging') {
-        playwrightProject = 'firefox';
-      } else if (environment === 'production') {
-        playwrightProject = 'webkit';
-      } else {
-        playwrightProject = 'chromium'; // Default fallback
+    // First try to get Playwright project configuration
+    try {
+      const playwrightConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+      const configContent = await fs.readFile(playwrightConfigPath, 'utf8');
+      
+      // Extract project configurations
+      const projectMatches = configContent.match(/projects:\s*\[([\s\S]*?)\]/);
+      if (projectMatches) {
+        const projectsContent = projectMatches[1];
+        const projectRegex = /{\s*name:\s*['"`]([^'"`]+)['"`][\s\S]*?use:\s*{([\s\S]*?)}/g;
+        let projectMatch;
+        
+        while ((projectMatch = projectRegex.exec(projectsContent)) !== null) {
+          const projectName = projectMatch[1];
+          const projectUse = projectMatch[2];
+          const baseURLMatch = projectUse.match(/baseURL:\s*(['"`][^'"`]+['"`]|process\.env\.\w+)/);
+          
+          if (projectName === environment) {
+            // Found matching Playwright project
+            if (baseURLMatch) {
+              const baseURLRaw = baseURLMatch[1];
+              if (baseURLRaw.startsWith("'") || baseURLRaw.startsWith('"') || baseURLRaw.startsWith('`')) {
+                finalUrl = baseURLRaw.slice(1, -1); // Remove quotes
+              } else {
+                // Handle environment variables
+                if (baseURLRaw === 'process.env.LOCAL') {
+                  finalUrl = websiteUrl; // Use the provided URL for LOCAL env var
+                } else {
+                  finalUrl = baseURLRaw; // Keep as is for other env vars
+                }
+              }
+            }
+            playwrightProject = projectName; // Use the actual project name
+            console.log(`Using Playwright project: ${playwrightProject} with URL: ${finalUrl}`);
+            break;
+          }
+        }
       }
-    } else {
-      // Fallback for unknown environments
-      playwrightProject = 'chromium';
-      finalUrl = websiteUrl;
+    } catch (error) {
+      console.log('Could not load Playwright config, falling back to environment config:', error.message);
+    }
+    
+    // Fallback to environment configuration if Playwright project not found
+    if (playwrightProject === 'chromium' && finalUrl === websiteUrl) {
+      const envConfig = environmentConfig.environments[environment];
+      if (envConfig) {
+        // Use environment-specific URL if available, otherwise use provided URL
+        finalUrl = envConfig.url || websiteUrl;
+        // Map environment names to valid Playwright project names
+        if (environment === 'local') {
+          playwrightProject = 'chromium';
+        } else if (environment === 'staging') {
+          playwrightProject = 'firefox';
+        } else if (environment === 'production') {
+          playwrightProject = 'webkit';
+        } else {
+          playwrightProject = 'chromium'; // Default fallback
+        }
+      } else {
+        // Fallback for unknown environments
+        playwrightProject = 'chromium';
+        finalUrl = websiteUrl;
+      }
     }
     
     // Set up environment variables
@@ -1276,6 +1320,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       'test',
       // `--project=${playwrightProject}`,
       // '--reporter=json'
+      //not need it
     ];
     
     // Add headed mode if runWithUI is enabled
@@ -1307,7 +1352,9 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     
     console.log(`Running Playwright tests in ${projectPath}`);
     console.log(`Command: npx playwright ${playwrightArgs.join(' ')}`);
-    console.log(`Environment: LOCAL=${env.LOCAL}, USERNAME=${env.USERNAME}`);
+    console.log(`Environment: ${environment} (Playwright project: ${playwrightProject})`);
+    console.log(`URL: ${finalUrl}`);
+    console.log(`Environment Variables: LOCAL=${env.LOCAL}, USERNAME=${env.USERNAME}`);
     console.log(`Display: ${env.DISPLAY}, Playwright Browsers Path: ${env.PLAYWRIGHT_BROWSERS_PATH}`);
     console.log(`runWithUI value: ${runWithUI} (type: ${typeof runWithUI})`);
     console.log(`Platform: ${process.platform}, Process UID: ${process.getuid ? process.getuid() : 'N/A'}`);
@@ -2361,6 +2408,296 @@ app.put('/api/environments/:envId', async (req, res) => {
     });
   }
 });
+
+// API endpoint to load Playwright config from external file
+app.get('/api/projects/:projectName/playwright-config', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const { configPath } = req.query;
+    
+    let targetConfigPath;
+    
+    if (configPath) {
+      // Use provided config path
+      targetConfigPath = configPath;
+    } else {
+      // Default to the specified path
+      targetConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+    }
+    
+    console.log(`Loading Playwright config from: ${targetConfigPath}`);
+    
+    try {
+      const configContent = await fs.readFile(targetConfigPath, 'utf8');
+      
+      // Parse the TypeScript config to extract baseURL values
+      const configData = {
+        content: configContent,
+        baseURLs: {},
+        projects: []
+      };
+      
+      // Extract baseURL from use section
+      const useBaseURLMatch = configContent.match(/baseURL:\s*(['"`][^'"`]+['"`]|process\.env\.\w+)/);
+      if (useBaseURLMatch) {
+        const baseURLValue = useBaseURLMatch[1];
+        // Handle both string literals and environment variables
+        if (baseURLValue.startsWith("'") || baseURLValue.startsWith('"') || baseURLValue.startsWith('`')) {
+          configData.baseURLs.default = baseURLValue.slice(1, -1); // Remove quotes
+        } else {
+          configData.baseURLs.default = baseURLValue; // Keep as is for env vars
+        }
+      }
+      
+      // Extract project configurations
+      const projectMatches = configContent.match(/projects:\s*\[([\s\S]*?)\]/);
+      if (projectMatches) {
+        const projectsContent = projectMatches[1];
+        const projectRegex = /{\s*name:\s*['"`]([^'"`]+)['"`][\s\S]*?use:\s*{([\s\S]*?)}/g;
+        let projectMatch;
+        
+        while ((projectMatch = projectRegex.exec(projectsContent)) !== null) {
+          const projectName = projectMatch[1];
+          const projectUse = projectMatch[2];
+          const baseURLMatch = projectUse.match(/baseURL:\s*(['"`][^'"`]+['"`]|process\.env\.\w+)/);
+          
+          let baseURLValue = null;
+          if (baseURLMatch) {
+            const baseURLRaw = baseURLMatch[1];
+            if (baseURLRaw.startsWith("'") || baseURLRaw.startsWith('"') || baseURLRaw.startsWith('`')) {
+              baseURLValue = baseURLRaw.slice(1, -1); // Remove quotes
+            } else {
+              baseURLValue = baseURLRaw; // Keep as is for env vars
+            }
+          }
+          
+          configData.projects.push({
+            name: projectName,
+            baseURL: baseURLValue,
+            use: projectUse.trim()
+          });
+          
+          if (baseURLValue) {
+            configData.baseURLs[projectName] = baseURLValue;
+          }
+        }
+      }
+      
+      res.json({
+        success: true,
+        configPath: targetConfigPath,
+        config: configData
+      });
+      
+    } catch (readError) {
+      console.error('Error reading Playwright config file:', readError);
+      res.status(404).json({
+        error: 'Config file not found',
+        message: `Could not read config file at ${targetConfigPath}`,
+        path: targetConfigPath
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error loading Playwright config:', error);
+    res.status(500).json({
+      error: 'Failed to load Playwright config',
+      message: error.message
+    });
+  }
+});
+
+// API endpoint to save updated Playwright config
+app.put('/api/projects/:projectName/playwright-config', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const { configPath, baseURLs, projects } = req.body;
+    
+    let targetConfigPath;
+    
+    if (configPath) {
+      targetConfigPath = configPath;
+    } else {
+      targetConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+    }
+    
+    console.log(`Updating Playwright config at: ${targetConfigPath}`);
+    
+    try {
+      // Read current config
+      const currentContent = await fs.readFile(targetConfigPath, 'utf8');
+      let updatedContent = currentContent;
+      
+      // Update default baseURL in use section
+      if (baseURLs && baseURLs.default) {
+        // Handle both string literals and environment variables
+        const isEnvVar = baseURLs.default.startsWith('process.env.');
+        const newValue = isEnvVar ? baseURLs.default : `'${baseURLs.default}'`;
+        
+        updatedContent = updatedContent.replace(
+          /baseURL:\s*(['"`][^'"`]*['"`]|process\.env\.\w+)/,
+          `baseURL: ${newValue}`
+        );
+      }
+      
+      // Update project baseURLs
+      if (projects && Array.isArray(projects)) {
+        projects.forEach(project => {
+          if (project.baseURL) {
+            const isEnvVar = project.baseURL.startsWith('process.env.');
+            const newValue = isEnvVar ? project.baseURL : `'${project.baseURL}'`;
+            
+            const projectRegex = new RegExp(
+              `(name:\\s*['"\`]${project.name}['"\`][\\s\\S]*?use:\\s*{[\\s\\S]*?)(baseURL:\\s*(['"\`][^'"\`]*['"\`]|process\\.env\\.\\w+))`,
+              'g'
+            );
+            updatedContent = updatedContent.replace(
+              projectRegex,
+              `$1baseURL: ${newValue}`
+            );
+          }
+        });
+      }
+      
+      // Write updated config
+      await fs.writeFile(targetConfigPath, updatedContent);
+      
+      res.json({
+        success: true,
+        message: 'Playwright config updated successfully',
+        configPath: targetConfigPath
+      });
+      
+    } catch (writeError) {
+      console.error('Error writing Playwright config file:', writeError);
+      res.status(500).json({
+        error: 'Failed to write config file',
+        message: `Could not write to ${targetConfigPath}`,
+        path: targetConfigPath
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error updating Playwright config:', error);
+    res.status(500).json({
+      error: 'Failed to update Playwright config',
+      message: error.message
+    });
+  }
+});
+
+// API endpoint to get dynamic environments from Playwright config
+app.get('/api/projects/:projectName/playwright-environments', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const { configPath } = req.query;
+    
+    let targetConfigPath;
+    
+    if (configPath) {
+      targetConfigPath = configPath;
+    } else {
+      targetConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+    }
+    
+    console.log(`Loading dynamic environments from: ${targetConfigPath}`);
+    
+    try {
+      const configContent = await fs.readFile(targetConfigPath, 'utf8');
+      
+      // Parse the TypeScript config to extract project environments
+      const environments = [];
+      
+      // Extract project configurations
+      const projectMatches = configContent.match(/projects:\s*\[([\s\S]*?)\]/);
+      if (projectMatches) {
+        const projectsContent = projectMatches[1];
+        const projectRegex = /{\s*name:\s*['"`]([^'"`]+)['"`][\s\S]*?use:\s*{([\s\S]*?)}/g;
+        let projectMatch;
+        
+        while ((projectMatch = projectRegex.exec(projectsContent)) !== null) {
+          const projectName = projectMatch[1];
+          const projectUse = projectMatch[2];
+          const baseURLMatch = projectUse.match(/baseURL:\s*(['"`][^'"`]+['"`]|process\.env\.\w+)/);
+          
+          let baseURLValue = null;
+          if (baseURLMatch) {
+            const baseURLRaw = baseURLMatch[1];
+            if (baseURLRaw.startsWith("'") || baseURLRaw.startsWith('"') || baseURLRaw.startsWith('`')) {
+              baseURLValue = baseURLRaw.slice(1, -1); // Remove quotes
+            } else {
+              baseURLValue = baseURLRaw; // Keep as is for env vars
+            }
+          }
+          
+          // Create environment object
+          const environment = {
+            id: projectName,
+            name: projectName.charAt(0).toUpperCase() + projectName.slice(1),
+            description: `Playwright project: ${projectName}`,
+            url: baseURLValue,
+            defaultUrl: baseURLValue,
+            requiresUrl: false,
+            color: getEnvironmentColor(projectName),
+            icon: getPlaywrightEnvironmentIcon(projectName),
+            isPlaywrightProject: true,
+            baseURL: baseURLValue
+          };
+          
+          environments.push(environment);
+        }
+      }
+      
+      // Add a custom environment option
+      environments.push({
+        id: 'custom',
+        name: 'Custom',
+        description: 'Custom environment with manual URL input',
+        url: '',
+        defaultUrl: '',
+        requiresUrl: true,
+        color: '#6b7280',
+        icon: 'globe',
+        isPlaywrightProject: false,
+        baseURL: null
+      });
+      
+      res.json({
+        success: true,
+        environments: environments,
+        defaultEnvironment: environments.length > 0 ? environments[0].id : 'custom'
+      });
+      
+    } catch (readError) {
+      console.error('Error reading Playwright config file:', readError);
+      res.status(404).json({
+        error: 'Config file not found',
+        message: `Could not read config file at ${targetConfigPath}`,
+        path: targetConfigPath
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error loading Playwright environments:', error);
+    res.status(500).json({
+      error: 'Failed to load Playwright environments',
+      message: error.message
+    });
+  }
+});
+
+// Helper function to get environment icon for Playwright projects
+const getPlaywrightEnvironmentIcon = (projectName) => {
+  const icons = {
+    'staging': 'layers',
+    'local': 'home',
+    'production': 'zap',
+    'dev': 'code',
+    'test': 'flask-conical',
+    'uat': 'shield-check'
+  };
+  return icons[projectName] || 'globe';
+};
 
 // API endpoint to get all command logs
 app.get('/api/command-logs', async (req, res) => {

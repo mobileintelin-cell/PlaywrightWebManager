@@ -6,6 +6,7 @@ import { RunTestsCard, TestRunConfig } from "./RunTestsCard";
 import { QuickActionsCard } from "./QuickActionsCard";
 import { LiveLogsCard } from "./LiveLogsCard";
 import { EnvironmentManager } from "./EnvironmentManager";
+import { PlaywrightConfigEditor } from "./PlaywrightConfigEditor";
 import { NotificationSystem, useNotifications } from "./NotificationSystem";
 import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square, Settings, Play, MoreVertical, Menu, Trash } from "lucide-react";
 import { getApiUrl } from '../config/api';
@@ -72,6 +73,7 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
   const [isLoadingCache, setIsLoadingCache] = useState(false);
   const [individualTestCases, setIndividualTestCases] = useState([]);
   const [showEnvironmentManager, setShowEnvironmentManager] = useState(false);
+  const [showPlaywrightConfig, setShowPlaywrightConfig] = useState(false);
   const [showLiveLogs, setShowLiveLogs] = useState(true);
   const [showQuickActions, setShowQuickActions] = useState(true);
   
@@ -199,6 +201,7 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
     setTestResults(prev => ({ ...prev, ...initialResults }));
     
     addLog(`Starting test run for project: ${selectedProject}`);
+    addLog(`Environment: ${config.environment}`);
     addLog(`Website URL: ${config.websiteUrl}`);
     addLog(`Username: ${config.username}`);
     addLog(`Selected test files: ${selectedTestFiles.length}`);
@@ -214,7 +217,7 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
     try {
     // Initial setup steps
     const setupSteps = [
-      'Setting up test environment...',
+      `Setting up ${config.environment} environment...`,
       `Authenticating with website ${config.websiteUrl} and username: ${config.username}...`,
     ];
 
@@ -821,6 +824,16 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
                 <FileText className="w-4 h-4 mr-1" />
                 Live Logs
               </Button>
+              
+              <Button 
+                variant={showPlaywrightConfig ? "default" : "outline"}
+                size="sm"
+                onClick={() => setShowPlaywrightConfig(!showPlaywrightConfig)}
+                className="flex items-center"
+              >
+                <Settings className="w-4 h-4 mr-1" />
+                Playwright Config
+              </Button>
             </div>
 
             {/* More Actions Dropdown */}
@@ -834,6 +847,10 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
                 <DropdownMenuItem onClick={() => setShowEnvironmentManager(!showEnvironmentManager)}>
                   <Settings className="w-4 h-4 mr-2" />
                   {showEnvironmentManager ? 'Hide' : 'Manage'} Environments
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setShowPlaywrightConfig(!showPlaywrightConfig)}>
+                  <Settings className="w-4 h-4 mr-2" />
+                  {showPlaywrightConfig ? 'Hide' : 'Edit'} Playwright Config
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleClearLogs}>
@@ -943,6 +960,24 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
                 addLog('Environment configuration updated');
                 // Refresh the RunTestsCard to get updated environment config
                 window.location.reload();
+              }}
+            />
+          </div>
+        )}
+
+        {/* Playwright Config Editor */}
+        {showPlaywrightConfig && (
+          <div className="mb-6">
+            <PlaywrightConfigEditor 
+              selectedProject={selectedProject}
+              onConfigUpdate={() => {
+                addLog('Playwright configuration updated');
+                addNotification({
+                  type: 'success',
+                  title: 'Config Updated',
+                  message: 'Playwright configuration has been updated successfully',
+                  duration: 3000
+                });
               }}
             />
           </div>
