@@ -458,6 +458,46 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
     }
   };
 
+  const handleShowPlaywrightReport = async () => {
+    addLog(`Executing 'npx playwright show-report' for ${selectedProject}...`);
+    
+    try {
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/start-report`), {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `HTTP error! status: ${response.status}`);
+      }
+      
+      const data = await response.json();
+      addLog('Playwright show-report command executed successfully!');
+      addLog('The Playwright report should open in your default browser.');
+      addLog(`Report URL: ${data.url}`);
+      
+      // Show success notification
+      addNotification({
+        type: 'success',
+        title: 'Report Opened',
+        message: 'Playwright report opened in browser',
+        duration: 3000
+      });
+      
+    } catch (error) {
+      console.error('Error executing Playwright show-report:', error);
+      addLog(`Error executing show-report: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Show error notification
+      addNotification({
+        type: 'error',
+        title: 'Report Failed',
+        message: error instanceof Error ? error.message : 'Failed to open Playwright report',
+        duration: 5000
+      });
+    }
+  };
+
   const handleListTests = () => {
     addLog('Generating test list JSON...');
     if (testData) {
@@ -805,6 +845,15 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
               Latest Report
             </Button>
 
+            <Button 
+              variant="outline" 
+              onClick={handleShowPlaywrightReport}
+              className="flex items-center"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              Show Report
+            </Button>
+
             {/* View Controls */}
             <div className="flex items-center gap-2">
               <Button 
@@ -871,30 +920,6 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
                 <DropdownMenuItem onClick={handleClearCache} disabled={!cachedTestStatus}>
                   <Trash2 className="w-4 h-4 mr-2" />
                   Clear Cache
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={async () => {
-                  addLog('Starting Playwright report server...');
-                  try {
-                    const response = await fetch(getApiUrl(`/projects/${selectedProject}/start-report`), {
-                      method: 'POST'
-                    });
-                    
-                    if (response.ok) {
-                      const data = await response.json();
-                      addLog('Playwright report server started. Opening in browser...');
-                      setTimeout(() => {
-                        window.open(data.url, '_blank');
-                      }, 2000);
-                    } else {
-                      throw new Error('Failed to start report server');
-                    }
-                  } catch (error) {
-                    addLog(`Error starting report server: ${error instanceof Error ? error.message : 'Unknown error'}`);
-                  }
-                }}>
-                  <ExternalLink className="w-4 h-4 mr-2" />
-                  Show Report
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
