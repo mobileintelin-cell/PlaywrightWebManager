@@ -7,7 +7,7 @@ import { QuickActionsCard } from "./QuickActionsCard";
 import { LiveLogsCard } from "./LiveLogsCard";
 import { EnvironmentManager } from "./EnvironmentManager";
 import { NotificationSystem, useNotifications } from "./NotificationSystem";
-import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square, Settings, Play, MoreVertical, Menu } from "lucide-react";
+import { ExternalLink, FileText, Folder, ArrowLeft, RefreshCw, AlertCircle, Trash2, Download, Database, Clock, GripVertical, CheckSquare, Square, Settings, Play, MoreVertical, Menu, Trash } from "lucide-react";
 import { getApiUrl } from '../config/api';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "./ui/dropdown-menu";
 import {
@@ -507,6 +507,39 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
     }
   };
 
+  const handleClearStorageState = async () => {
+    try {
+      addLog('Clearing storage state cache...');
+      
+      const response = await fetch(getApiUrl(`/projects/${selectedProject}/clear-cache`), {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        addLog(`Storage state cache cleared: ${result.message}`);
+        addNotification({
+          type: 'success',
+          title: 'Cache Cleared',
+          message: 'Storage state cache has been cleared successfully',
+          duration: 3000
+        });
+      } else {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Failed to clear storage state cache');
+      }
+    } catch (error) {
+      console.error('Error clearing storage state cache:', error);
+      addLog(`Error clearing storage state cache: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      addNotification({
+        type: 'error',
+        title: 'Cache Clear Failed',
+        message: error instanceof Error ? error.message : 'Failed to clear storage state cache',
+        duration: 5000
+      });
+    }
+  };
+
   const handleRefreshCache = () => {
     fetchCachedTestStatus();
   };
@@ -726,7 +759,19 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
                 <span className="text-sm">{selectedProject}</span>
               </div>
             </div>
-            <StatusPill status={status} />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleClearStorageState}
+                className="flex items-center gap-2"
+                title="Clear storage state cache (storageState.json)"
+              >
+                <Trash className="w-4 h-4" />
+                Clear Cache
+              </Button>
+              <StatusPill status={status} />
+            </div>
           </div>
         </div>
       </header>

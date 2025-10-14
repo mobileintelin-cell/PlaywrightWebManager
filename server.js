@@ -2118,6 +2118,68 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
   }
 });
 
+// API endpoint to clear cache (storageState.json) for a project
+app.post('/api/projects/:projectName/clear-cache', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
+    
+    // Check if project exists
+    try {
+      await fs.access(projectPath);
+    } catch (error) {
+      return res.status(404).json({ 
+        error: 'Project not found',
+        message: `Project "${projectName}" does not exist`
+      });
+    }
+    
+    // Path to storageState.json file
+    const storageStatePath = path.join(projectPath, 'storageState.json');
+    
+    try {
+      // Check if storageState.json exists
+      await fs.access(storageStatePath);
+      
+      // Clear the file by writing an empty object
+      await fs.writeFile(storageStatePath, '{}', 'utf8');
+      
+      console.log(`Cleared cache for project: ${projectName}`);
+      
+      res.json({
+        success: true,
+        message: 'Cache cleared successfully',
+        project: projectName,
+        filePath: storageStatePath
+      });
+      
+    } catch (error) {
+      // If file doesn't exist, create it with empty object
+      if (error.code === 'ENOENT') {
+        await fs.writeFile(storageStatePath, '{}', 'utf8');
+        
+        console.log(`Created empty storageState.json for project: ${projectName}`);
+        
+        res.json({
+          success: true,
+          message: 'Cache file created and cleared',
+          project: projectName,
+          filePath: storageStatePath
+        });
+      } else {
+        throw error;
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error clearing cache:', error);
+    res.status(500).json({ 
+      error: 'Failed to clear cache',
+      message: error.message 
+    });
+  }
+});
+
 // API endpoint to get environment configuration
 app.get('/api/environments', async (req, res) => {
   try {
