@@ -1274,8 +1274,8 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     // Build the Playwright command
     const playwrightArgs = [
       'test',
-      `--project=${playwrightProject}`,
-      '--reporter=json'
+      // `--project=${playwrightProject}`,
+      // '--reporter=json'
     ];
     
     // Add headed mode if runWithUI is enabled
@@ -1294,7 +1294,8 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
         // Execute individual test cases in order
         testExecutionOrder.forEach(testCase => {
           const [fileName, testName] = testCase.split(':');
-          playwrightArgs.push(`--grep="${testName}"`, path.join('tests', fileName));
+          // Add test file path first, then grep pattern
+          playwrightArgs.push(path.join('tests', fileName), `--grep=${testName}`);
         });
       } else {
         // Execute entire test files
@@ -1337,6 +1338,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     console.log(`Command ID: ${commandLog.id}`);
     console.log(`Full command: ${envPrefix}npx playwright ${playwrightArgs.join(' ')}`);
     console.log(`Working directory: ${projectPath}`);
+    console.log(`Playwright args:`, playwrightArgs);
     console.log(`Environment variables:`, {
       LOCAL: env.LOCAL,
       USERNAME: env.USERNAME ? '***' : 'not set',
@@ -1347,6 +1349,18 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       PWDEBUG: env.PWDEBUG,
       PLAYWRIGHT_HEADLESS: env.PLAYWRIGHT_HEADLESS
     });
+    
+    // Debug: Check if test files exist
+    console.log('=== DEBUGGING TEST FILES ===');
+    for (const testFile of selectedTestFiles) {
+      const fullPath = path.join(projectPath, 'tests', testFile);
+      try {
+        const stats = await fs.stat(fullPath);
+        console.log(`Test file exists: ${fullPath} (${stats.size} bytes)`);
+      } catch (error) {
+        console.log(`Test file NOT found: ${fullPath}`);
+      }
+    }
     console.log('=====================================');
     
     // Add initial log entries
@@ -1388,6 +1402,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       const dataStr = data.toString();
       stdout += dataStr;
       commandLog.addOutput(data, false);
+      console.log('Playwright stdout:', dataStr);
       
       // Parse and log specific Playwright events
       if (dataStr.includes('Running')) {
@@ -1406,6 +1421,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       stderr += errorData;
       hasError = true;
       commandLog.addOutput(data, true);
+      console.log('Playwright stderr:', errorData);
       
       // Log browser launch errors specifically
       if (runWithUI && (errorData.includes('browser') || errorData.includes('display') || errorData.includes('X11'))) {
