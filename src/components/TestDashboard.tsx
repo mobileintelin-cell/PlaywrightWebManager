@@ -440,7 +440,9 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
       addLog(`Opening report in new window...`);
       
       // Open the report in a new window
-      const reportUrl = `${getApiUrl('')}${latestReport.url}`;
+      const reportUrl = latestReport.url.startsWith('/api') 
+        ? latestReport.url 
+        : `${getApiUrl('')}${latestReport.url}`;
       const newWindow = window.open(reportUrl, '_blank');
       
       if (!newWindow) {
