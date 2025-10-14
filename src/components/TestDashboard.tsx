@@ -473,8 +473,20 @@ export function TestDashboard({ selectedProject, selectedProjectPath, onBackToPr
       
       const data = await response.json();
       addLog('Playwright show-report command executed successfully!');
-      addLog('The Playwright report should open in your default browser.');
       addLog(`Report URL: ${data.url}`);
+      
+      // Wait a moment for the server to start, then open the browser tab
+      setTimeout(() => {
+        addLog('Opening Playwright report in browser...');
+        const newWindow = window.open(data.url, '_blank');
+        
+        if (!newWindow) {
+          addLog('Could not open new window. Please check your popup blocker settings.');
+          addLog(`Manual URL: ${data.url}`);
+        } else {
+          addLog('Playwright report opened in new browser tab!');
+        }
+      }, 2000);
       
       // Show success notification
       addNotification({

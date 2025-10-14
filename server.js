@@ -2138,11 +2138,11 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
     
     // Start the Playwright report server
     console.log('=== EXECUTING PLAYWRIGHT REPORT COMMAND ===');
-    console.log(`Full command: npx playwright show-report`);
+    console.log(`Full command: npx playwright show-report --host 192.168.0.144 --port 9323`);
     console.log(`Working directory: ${projectPath}`);
     console.log('==========================================');
     
-    const reportProcess = spawn('npx', ['playwright', 'show-report'], {
+    const reportProcess = spawn('npx', ['playwright', 'show-report', '--host', '192.168.0.144', '--port', '9323'], {
       cwd: projectPath,
       detached: true,
       stdio: 'ignore'
@@ -2153,7 +2153,7 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
     res.json({
       success: true,
       message: 'Playwright report server started',
-      url: 'http://localhost:9323'
+      url: 'http://192.168.0.144:9323'
     });
     
   } catch (error) {
