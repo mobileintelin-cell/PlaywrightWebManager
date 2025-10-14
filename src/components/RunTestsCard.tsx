@@ -330,7 +330,9 @@ export function RunTestsCard({
     try {
       // First try to load from Playwright config
       const projectName = projectPath?.split('/').pop() || 'default';
-      const playwrightUrl = getApiUrl(`/projects/${projectName}/playwright-environments`);
+      const playwrightUrl = projectPath 
+        ? `${getApiUrl(`/projects/${projectName}/playwright-environments`)}?projectPath=${encodeURIComponent(projectPath)}`
+        : getApiUrl(`/projects/${projectName}/playwright-environments`);
       
       console.log('Fetching Playwright environments from:', playwrightUrl);
       console.log('Project path:', projectPath);

@@ -254,48 +254,168 @@ const searchCommandLogs = (query, filters = {}) => {
 // Environment configuration
 let environmentConfig = null;
 
-// Load environment configuration from target Playwright folder
-const loadEnvironmentConfig = async (projectPath = null) => {
+// Parse playwright.config.ts to extract environment configuration
+const parsePlaywrightConfig = async (projectPath) => {
+  const configPath = path.join(projectPath, 'playwright.config.ts');
+  
   try {
-    let configPath;
+    console.log(`Attempting to parse playwright config from: ${configPath}`);
+    const configContent = await fs.readFile(configPath, 'utf8');
     
-    if (projectPath) {
-      // Try to load from specific project folder first
-      configPath = path.join(projectPath, 'env.json');
-    } else {
-      // Fallback to server root
-      configPath = path.join(__dirname, 'environments.json');
+    // Extract environment configurations from the config file
+    const environments = {};
+    
+    // First, try to parse projects array structure
+    const projectsMatch = configContent.match(/projects\s*:\s*\[([\s\S]*?)\]/);
+    
+    if (projectsMatch) {
+      const projectsContent = projectsMatch[1];
+      console.log('Found projects array, parsing project configurations...');
+      
+      // Extract individual project configurations
+      const projectMatches = projectsContent.match(/{\s*name\s*:\s*['"`]([^'"`]+)['"`][\s\S]*?}/g);
+      
+      if (projectMatches) {
+        projectMatches.forEach(projectBlock => {
+          // Extract project name
+          const nameMatch = projectBlock.match(/name\s*:\s*['"`]([^'"`]+)['"`]/);
+          if (nameMatch) {
+            const projectName = nameMatch[1];
+            
+            // Extract baseURL from use section
+            const baseURLMatch = projectBlock.match(/baseURL\s*:\s*['"`]([^'"`]+)['"`]/);
+            const processEnvMatch = projectBlock.match(/baseURL\s*:\s*process\.env\.(\w+)/);
+            
+            let baseURL = '';
+            if (baseURLMatch) {
+              baseURL = baseURLMatch[1];
+            } else if (processEnvMatch) {
+              // Handle process.env variables - use the env var name as placeholder
+              baseURL = `process.env.${processEnvMatch[1]}`;
+            }
+            
+            environments[projectName] = {
+              id: projectName,
+              name: getEnvironmentDisplayName(projectName),
+              description: getEnvironmentDescription(projectName),
+              url: baseURL,
+              defaultUrl: baseURL,
+              requiresUrl: projectName === 'custom',
+              color: getEnvironmentColor(projectName),
+              icon: getEnvironmentIcon(projectName)
+            };
+          }
+        });
+      }
     }
     
-    console.log(`Attempting to load environment config from: ${configPath}`);
+    // If no projects found, try the old env section format
+    if (Object.keys(environments).length === 0) {
+      console.log('No projects found, trying env section...');
+      const envMatch = configContent.match(/env\s*:\s*\{([^}]+)\}/s);
+      
+      if (envMatch) {
+        const envContent = envMatch[1];
+        // Extract individual environment entries
+        const envEntries = envContent.match(/(\w+)\s*:\s*['"`]([^'"`]+)['"`]/g);
+        
+        if (envEntries) {
+          envEntries.forEach(entry => {
+            const match = entry.match(/(\w+)\s*:\s*['"`]([^'"`]+)['"`]/);
+            if (match) {
+              const [, envId, url] = match;
+              environments[envId] = {
+                id: envId,
+                name: getEnvironmentDisplayName(envId),
+                description: getEnvironmentDescription(envId),
+                url: url,
+                defaultUrl: url,
+                requiresUrl: envId === 'custom',
+                color: getEnvironmentColor(envId),
+                icon: getEnvironmentIcon(envId)
+              };
+            }
+          });
+        }
+      }
+    }
+    
+    // If still no environments found, create default ones
+    if (Object.keys(environments).length === 0) {
+      console.log('No environment configurations found in playwright.config.ts, using defaults');
+      environments.custom = {
+        id: "custom",
+        name: "Custom",
+        description: "Custom environment with user-defined URL",
+        url: "",
+        defaultUrl: "http://localhost:3000",
+        requiresUrl: true,
+        color: "#6b7280",
+        icon: "settings"
+      };
+    }
+    
+    console.log(`Parsed ${Object.keys(environments).length} environments:`, Object.keys(environments));
+    
+    return {
+      environments,
+      defaultEnvironment: Object.keys(environments)[0] || "custom",
+      errorContext: {
+        enabled: true,
+        captureScreenshots: true,
+        captureVideos: true,
+        captureTraces: true,
+        maxRetries: 2,
+        timeout: 30000
+      }
+    };
+    
+  } catch (error) {
+    console.error('Error parsing playwright.config.ts:', error);
+    throw error;
+  }
+};
+
+// Load environment configuration from playwright.config.ts
+const loadEnvironmentConfig = async (projectPath = null) => {
+  try {
+    if (!projectPath) {
+      console.log('No project path provided, using fallback configuration');
+      // Use fallback configuration when no project path is provided (e.g., during startup)
+      environmentConfig = {
+        environments: {
+          custom: {
+            id: "custom",
+            name: "Custom",
+            description: "Custom environment with user-defined URL",
+            url: "",
+            defaultUrl: "http://localhost:3000",
+            requiresUrl: true,
+            color: "#6b7280",
+            icon: "settings"
+          }
+        },
+        defaultEnvironment: "custom",
+        errorContext: {
+          enabled: true,
+          captureScreenshots: true,
+          captureVideos: true,
+          captureTraces: true,
+          maxRetries: 2,
+          timeout: 30000
+        }
+      };
+      return;
+    }
+    
+    console.log(`Loading environment config from playwright.config.ts in: ${projectPath}`);
     
     try {
-      const configData = await fs.readFile(configPath, 'utf8');
-      const rawConfig = JSON.parse(configData);
-      
-      // Convert from simple format to full format if needed
-      if (rawConfig.env) {
-        console.log('Converting simple env format to full environment config');
-        environmentConfig = convertSimpleEnvToFullConfig(rawConfig);
-      } else {
-        environmentConfig = rawConfig;
-      }
-      
-      console.log('Environment configuration loaded successfully from:', configPath);
-    } catch (readError) {
-      console.log(`Config file not found at ${configPath}, generating new one`);
-      
-      // Generate new config file in the project folder
-      if (projectPath) {
-        await generateEnvironmentConfig(projectPath);
-        // Try to load the newly created config
-        const newConfigData = await fs.readFile(configPath, 'utf8');
-        const rawConfig = JSON.parse(newConfigData);
-        environmentConfig = convertSimpleEnvToFullConfig(rawConfig);
-        console.log('New environment configuration generated and loaded');
-      } else {
-        throw readError; // Re-throw if we can't generate in project folder
-      }
+      environmentConfig = await parsePlaywrightConfig(projectPath);
+      console.log('Environment configuration loaded successfully from playwright.config.ts');
+    } catch (parseError) {
+      console.log('Failed to parse playwright.config.ts, using fallback configuration');
+      throw parseError;
     }
   } catch (error) {
     console.error('Error loading environment configuration:', error);
@@ -326,60 +446,195 @@ const loadEnvironmentConfig = async (projectPath = null) => {
   }
 };
 
-// Convert simple env format to full environment configuration
-const convertSimpleEnvToFullConfig = (simpleConfig) => {
-  const env = simpleConfig.env || {};
-  
-  const environments = {};
-  
-  // Convert each environment
-  Object.entries(env).forEach(([envId, url]) => {
-    environments[envId] = {
-      id: envId,
-      name: getEnvironmentDisplayName(envId),
-      description: getEnvironmentDescription(envId),
-      url: url || "",
-      defaultUrl: url || getDefaultUrlForEnvironment(envId),
-      requiresUrl: envId === 'custom',
-      color: getEnvironmentColor(envId),
-      icon: getEnvironmentIcon(envId)
-    };
-  });
-  
-  return {
-    environments,
-    defaultEnvironment: "custom",
-    errorContext: {
-      enabled: true,
-      captureScreenshots: true,
-      captureVideos: true,
-      captureTraces: true,
-      maxRetries: 2,
-      timeout: 30000
-    }
-  };
-};
 
 // Generate new environment configuration file
-const generateEnvironmentConfig = async (projectPath) => {
-  const configPath = path.join(projectPath, 'env.json');
-  
-  const defaultConfig = {
-    "env": {
-      "custom": "",
-      "dev": "",
-      "stg": "",
-      "uat": "",
-      "prod": ""
-    }
-  };
-  
+
+// Playwright installation and dependency management
+const checkPlaywrightInstalled = async (projectPath) => {
   try {
-    await fs.writeFile(configPath, JSON.stringify(defaultConfig, null, 2));
-    console.log(`Generated new environment config at: ${configPath}`);
+    const packageJsonPath = path.join(projectPath, 'package.json');
+    const packageJson = await fs.readFile(packageJsonPath, 'utf8');
+    const packageData = JSON.parse(packageJson);
+    
+    // Check if @playwright/test is in dependencies or devDependencies
+    const hasPlaywright = (
+      (packageData.dependencies && packageData.dependencies['@playwright/test']) ||
+      (packageData.devDependencies && packageData.devDependencies['@playwright/test'])
+    );
+    
+    return {
+      installed: hasPlaywright,
+      version: hasPlaywright ? (packageData.dependencies?.['@playwright/test'] || packageData.devDependencies?.['@playwright/test']) : null
+    };
   } catch (error) {
-    console.error('Error generating environment config:', error);
-    throw error;
+    console.error('Error checking Playwright installation:', error);
+    return { installed: false, version: null };
+  }
+};
+
+const checkPlaywrightBrowsers = async (projectPath) => {
+  try {
+    // Check multiple possible locations for Playwright browsers
+    const possiblePaths = [
+      // Local project installation
+      path.join(projectPath, 'node_modules', '@playwright', '.cache'),
+      // Global installation
+      path.join(require('os').homedir(), '.cache', 'ms-playwright'),
+      // Alternative global location
+      path.join(require('os').homedir(), 'Library', 'Caches', 'ms-playwright'),
+      // System-wide installation
+      '/usr/local/lib/node_modules/@playwright/.cache'
+    ];
+    
+    for (const cachePath of possiblePaths) {
+      try {
+        await fs.access(cachePath);
+        console.log(`Found Playwright browsers at: ${cachePath}`);
+        return true;
+      } catch (error) {
+        // Continue checking other paths
+      }
+    }
+    
+    // If no cache directory found, try to run playwright --version to check if it's available
+    return new Promise((resolve) => {
+      const { spawn } = require('child_process');
+      const npx = spawn('npx', ['playwright', '--version'], {
+        cwd: projectPath,
+        stdio: 'pipe'
+      });
+      
+      npx.on('close', (code) => {
+        resolve(code === 0);
+      });
+      
+      npx.on('error', () => {
+        resolve(false);
+      });
+    });
+    
+  } catch (error) {
+    console.error('Error checking Playwright browsers:', error);
+    return false;
+  }
+};
+
+const installPlaywright = async (projectPath) => {
+  return new Promise((resolve, reject) => {
+    console.log(`Installing @playwright/test in ${projectPath}...`);
+    
+    const { spawn } = require('child_process');
+    const npm = spawn('npm', ['install', '@playwright/test', '--save-dev'], {
+      cwd: projectPath,
+      stdio: 'pipe'
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    npm.stdout.on('data', (data) => {
+      output += data.toString();
+      console.log(`npm install output: ${data.toString()}`);
+    });
+    
+    npm.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.log(`npm install error: ${data.toString()}`);
+    });
+    
+    npm.on('close', (code) => {
+      if (code === 0) {
+        console.log('@playwright/test installed successfully');
+        resolve({ success: true, output });
+      } else {
+        console.error('Failed to install @playwright/test:', errorOutput);
+        reject(new Error(`npm install failed with code ${code}: ${errorOutput}`));
+      }
+    });
+    
+    npm.on('error', (error) => {
+      console.error('Error spawning npm install:', error);
+      reject(error);
+    });
+  });
+};
+
+const installPlaywrightBrowsers = async (projectPath) => {
+  return new Promise((resolve, reject) => {
+    console.log(`Installing Playwright browsers in ${projectPath}...`);
+    
+    const { spawn } = require('child_process');
+    const npx = spawn('npx', ['playwright', 'install'], {
+      cwd: projectPath,
+      stdio: 'pipe'
+    });
+    
+    let output = '';
+    let errorOutput = '';
+    
+    npx.stdout.on('data', (data) => {
+      output += data.toString();
+      console.log(`npx playwright install output: ${data.toString()}`);
+    });
+    
+    npx.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      console.log(`npx playwright install error: ${data.toString()}`);
+    });
+    
+    npx.on('close', (code) => {
+      if (code === 0) {
+        console.log('Playwright browsers installed successfully');
+        resolve({ success: true, output });
+      } else {
+        console.error('Failed to install Playwright browsers:', errorOutput);
+        reject(new Error(`npx playwright install failed with code ${code}: ${errorOutput}`));
+      }
+    });
+    
+    npx.on('error', (error) => {
+      console.error('Error spawning npx playwright install:', error);
+      reject(error);
+    });
+  });
+};
+
+const ensurePlaywrightInstalled = async (projectPath) => {
+  try {
+    console.log(`Checking Playwright installation for project: ${projectPath}`);
+    
+    // Check if @playwright/test is installed
+    const playwrightCheck = await checkPlaywrightInstalled(projectPath);
+    if (!playwrightCheck.installed) {
+      console.log('@playwright/test not found, installing...');
+      await installPlaywright(projectPath);
+    } else {
+      console.log(`@playwright/test already installed (version: ${playwrightCheck.version})`);
+    }
+    
+    // Check if browsers are installed
+    const browsersInstalled = await checkPlaywrightBrowsers(projectPath);
+    if (!browsersInstalled) {
+      console.log('Playwright browsers not found, installing...');
+      await installPlaywrightBrowsers(projectPath);
+    } else {
+      console.log('Playwright browsers already installed');
+    }
+    
+    return {
+      success: true,
+      playwrightInstalled: true,
+      browsersInstalled: true,
+      message: 'Playwright dependencies are ready'
+    };
+    
+  } catch (error) {
+    console.error('Error ensuring Playwright installation:', error);
+    return {
+      success: false,
+      error: error.message,
+      message: 'Failed to install Playwright dependencies'
+    };
   }
 };
 
@@ -440,22 +695,20 @@ const getEnvironmentIcon = (envId) => {
 };
 
 // Save environment configuration
+// Note: Since we now read from playwright.config.ts, we don't save back to files
+// The environment configuration is managed in memory and read from the playwright config
 const saveEnvironmentConfig = async (projectPath = null) => {
   try {
-    let configPath;
+    console.log('Environment configuration is now managed in memory and read from playwright.config.ts');
+    console.log('To update environment URLs, please modify the env section in your playwright.config.ts file');
     
+    // Reload the configuration from playwright.config.ts to ensure we have the latest
     if (projectPath) {
-      // Save to project-specific env.json file
-      configPath = path.join(projectPath, 'env.json');
-    } else {
-      // Save to server root environments.json
-      configPath = path.join(__dirname, 'environments.json');
+      await loadEnvironmentConfig(projectPath);
+      console.log('Environment configuration reloaded from playwright.config.ts');
     }
-    
-    await fs.writeFile(configPath, JSON.stringify(environmentConfig, null, 2));
-    console.log('Environment configuration saved successfully to:', configPath);
   } catch (error) {
-    console.error('Error saving environment configuration:', error);
+    console.error('Error reloading environment configuration:', error);
   }
 };
 
@@ -1196,6 +1449,18 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
         message: `Project "${projectName}" does not exist`
       });
     }
+    
+    // Check and ensure Playwright dependencies are installed
+    console.log('Checking Playwright dependencies before running tests...');
+    const dependencyResult = await ensurePlaywrightInstalled(projectPath);
+    if (!dependencyResult.success) {
+      return res.status(500).json({
+        error: 'Playwright dependencies not ready',
+        message: dependencyResult.message,
+        details: dependencyResult.error
+      });
+    }
+    console.log('Playwright dependencies verified and ready');
     
     // Validate required fields
     if (!selectedTestFiles || selectedTestFiles.length === 0) {
@@ -2269,7 +2534,7 @@ app.put('/api/environments', async (req, res) => {
     const { environments, defaultEnvironment, errorContext } = req.body;
     
     if (!environmentConfig) {
-      await loadEnvironmentConfig();
+      await loadEnvironmentConfig(null);
     }
     
     // Update environment configuration
@@ -2309,7 +2574,7 @@ app.get('/api/environments/:envId', async (req, res) => {
     const { envId } = req.params;
     
     if (!environmentConfig) {
-      await loadEnvironmentConfig();
+      await loadEnvironmentConfig(null);
     }
     
     const environment = environmentConfig.environments[envId];
@@ -2586,67 +2851,136 @@ app.put('/api/projects/:projectName/playwright-config', async (req, res) => {
   }
 });
 
+// API endpoint to check and install Playwright dependencies
+app.get('/api/projects/:projectName/playwright-dependencies', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const { projectPath } = req.query;
+    
+    let targetProjectPath;
+    
+    if (projectPath) {
+      targetProjectPath = projectPath;
+    } else {
+      targetProjectPath = `/Users/tam.ct/Documents/auto/playwright/${projectName}`;
+    }
+    
+    console.log(`Checking Playwright dependencies for project: ${targetProjectPath}`);
+    
+    // Check current installation status
+    const playwrightCheck = await checkPlaywrightInstalled(targetProjectPath);
+    const browsersCheck = await checkPlaywrightBrowsers(targetProjectPath);
+    
+    res.json({
+      success: true,
+      projectPath: targetProjectPath,
+      playwright: {
+        installed: playwrightCheck.installed,
+        version: playwrightCheck.version
+      },
+      browsers: {
+        installed: browsersCheck
+      },
+      ready: playwrightCheck.installed && browsersCheck
+    });
+    
+  } catch (error) {
+    console.error('Error checking Playwright dependencies:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// API endpoint to install Playwright dependencies
+app.post('/api/projects/:projectName/playwright-dependencies', async (req, res) => {
+  try {
+    const { projectName } = req.params;
+    const { projectPath } = req.query;
+    
+    let targetProjectPath;
+    
+    if (projectPath) {
+      targetProjectPath = projectPath;
+    } else {
+      targetProjectPath = `/Users/tam.ct/Documents/auto/playwright/${projectName}`;
+    }
+    
+    console.log(`Installing Playwright dependencies for project: ${targetProjectPath}`);
+    
+    const result = await ensurePlaywrightInstalled(targetProjectPath);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        message: result.message,
+        projectPath: targetProjectPath
+      });
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error,
+        message: result.message
+      });
+    }
+    
+  } catch (error) {
+    console.error('Error installing Playwright dependencies:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // API endpoint to get dynamic environments from Playwright config
 app.get('/api/projects/:projectName/playwright-environments', async (req, res) => {
   try {
     const { projectName } = req.params;
-    const { configPath } = req.query;
+    const { projectPath } = req.query;
     
-    let targetConfigPath;
+    let targetProjectPath;
     
-    if (configPath) {
-      targetConfigPath = configPath;
+    if (projectPath) {
+      targetProjectPath = projectPath;
     } else {
-      targetConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+      // Try to find the project path from the project name
+      // This is a fallback - ideally the frontend should pass the projectPath
+      targetProjectPath = `/Users/tam.ct/Documents/auto/playwright/${projectName}`;
     }
     
-    console.log(`Loading dynamic environments from: ${targetConfigPath}`);
+    console.log(`Loading dynamic environments from project path: ${targetProjectPath}`);
     
     try {
-      const configContent = await fs.readFile(targetConfigPath, 'utf8');
-      
-      // Parse the TypeScript config to extract project environments
-      const environments = [];
-      
-      // Extract project configurations
-      const projectMatches = configContent.match(/projects:\s*\[([\s\S]*?)\]/);
-      if (projectMatches) {
-        const projectsContent = projectMatches[1];
-        const projectRegex = /{\s*name:\s*['"`]([^'"`]+)['"`][\s\S]*?use:\s*{([\s\S]*?)}/g;
-        let projectMatch;
-        
-        while ((projectMatch = projectRegex.exec(projectsContent)) !== null) {
-          const projectName = projectMatch[1];
-          const projectUse = projectMatch[2];
-          const baseURLMatch = projectUse.match(/baseURL:\s*(['"`][^'"`]+['"`]|process\.env\.\w+)/);
-          
-          let baseURLValue = null;
-          if (baseURLMatch) {
-            const baseURLRaw = baseURLMatch[1];
-            if (baseURLRaw.startsWith("'") || baseURLRaw.startsWith('"') || baseURLRaw.startsWith('`')) {
-              baseURLValue = baseURLRaw.slice(1, -1); // Remove quotes
-            } else {
-              baseURLValue = baseURLRaw; // Keep as is for env vars
-            }
-          }
-          
-          // Create environment object
-          const environment = {
-            id: projectName,
-            name: projectName.charAt(0).toUpperCase() + projectName.slice(1),
-            description: `Playwright project: ${projectName}`,
-            url: baseURLValue,
-            defaultUrl: baseURLValue,
-            requiresUrl: false,
-            color: getEnvironmentColor(projectName),
-            icon: getPlaywrightEnvironmentIcon(projectName),
-            isPlaywrightProject: true,
-            baseURL: baseURLValue
-          };
-          
-          environments.push(environment);
+      // Use our new parsePlaywrightConfig function
+      let config;
+      try {
+        config = await parsePlaywrightConfig(targetProjectPath);
+      } catch (configError) {
+        // If config not found in current path, try parent directory
+        if (configError.code === 'ENOENT' && targetProjectPath.endsWith('/tests')) {
+          console.log('Config not found in tests directory, trying parent directory...');
+          const parentPath = path.dirname(targetProjectPath);
+          config = await parsePlaywrightConfig(parentPath);
+        } else {
+          throw configError;
         }
       }
+      
+      // Convert the parsed environments to the format expected by the frontend
+      const environments = Object.values(config.environments).map(env => ({
+        id: env.id,
+        name: env.name,
+        description: env.description,
+        url: env.url,
+        defaultUrl: env.defaultUrl,
+        requiresUrl: env.requiresUrl,
+        color: env.color,
+        icon: env.icon,
+        isPlaywrightProject: true,
+        baseURL: env.url
+      }));
       
       // Add a custom environment option
       environments.push({
@@ -2665,15 +2999,15 @@ app.get('/api/projects/:projectName/playwright-environments', async (req, res) =
       res.json({
         success: true,
         environments: environments,
-        defaultEnvironment: environments.length > 0 ? environments[0].id : 'custom'
+        defaultEnvironment: config.defaultEnvironment
       });
       
     } catch (readError) {
       console.error('Error reading Playwright config file:', readError);
       res.status(404).json({
         error: 'Config file not found',
-        message: `Could not read config file at ${targetConfigPath}`,
-        path: targetConfigPath
+        message: `Could not read config file at ${targetProjectPath}`,
+        path: targetProjectPath
       });
     }
     
