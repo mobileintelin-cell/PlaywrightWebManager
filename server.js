@@ -2256,6 +2256,9 @@ app.get('/api/projects/:projectName/report', async (req, res) => {
       });
     }
     
+    // Get cached test run data
+    const cachedRun = getCachedTestRun(projectName);
+    
     // Check for existing test reports
     const reportsPath = path.join(projectPath, 'test-results');
     let reports = [];
@@ -2279,7 +2282,19 @@ app.get('/api/projects/:projectName/report', async (req, res) => {
       // Reports directory doesn't exist
     }
     
-    // If no reports exist, create a sample report
+    // If no reports exist but we have cached data, create a report from cache
+    if (reports.length === 0 && cachedRun) {
+      const cacheReport = {
+        name: `cached-report-${new Date(cachedRun.timestamp).toISOString().split('T')[0]}.json`,
+        path: path.join(projectPath, `cached-report-${new Date(cachedRun.timestamp).toISOString().split('T')[0]}.json`),
+        type: 'json',
+        url: `/api/projects/${projectName}/report/cached-report-${new Date(cachedRun.timestamp).toISOString().split('T')[0]}.json`,
+        cachedData: cachedRun
+      };
+      reports = [cacheReport];
+    }
+    
+    // If still no reports, create a sample report
     if (reports.length === 0) {
       const sampleReport = {
         name: 'sample-report.html',
@@ -2294,12 +2309,24 @@ app.get('/api/projects/:projectName/report', async (req, res) => {
       success: true,
       project: projectName,
       reports,
-      latestReport: reports[0] || null
+      latestReport: reports[0] || null,
+      hasCachedData: !!cachedRun,
+      cachedData: cachedRun ? {
+        timestamp: cachedRun.timestamp,
+        totalTests: cachedRun.totalTests,
+        passed: cachedRun.passed,
+        failed: cachedRun.failed,
+        skipped: cachedRun.skipped,
+        executionTime: cachedRun.executionTime,
+        environment: cachedRun.environment,
+        websiteUrl: cachedRun.websiteUrl
+      } : null
     };
     
     logInfo(endpoint, `Generated report for project: ${projectName}`, {
       reportCount: reports.length,
-      hasLatestReport: !!reports[0]
+      hasLatestReport: !!reports[0],
+      hasCachedData: !!cachedRun
     });
     logApiResponse(endpoint, 200, successResponse);
     res.json(successResponse);
@@ -2434,6 +2461,50 @@ app.get('/api/projects/:projectName/report/:reportFile', async (req, res) => {
       error: 'Failed to serve test report',
       message: error.message 
     });
+  }
+});
+
+// API endpoint to serve cached report data
+app.get('/api/projects/:projectName/report/cached-report-:date.json', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/report/cached-report-:date.json';
+  logApiRequest('GET', endpoint, req.params);
+  
+  try {
+    const { projectName } = req.params;
+    logDebug(endpoint, `Serving cached report for project: ${projectName}`);
+    
+    const cachedRun = getCachedTestRun(projectName);
+    
+    if (!cachedRun) {
+      return res.status(404).json({ 
+        error: 'Cached data not found',
+        message: `No cached test run found for project "${projectName}"`
+      });
+    }
+    
+    // Return the full cached test run data as JSON
+    const reportData = {
+      ...cachedRun,
+      reportGenerated: new Date().toISOString(),
+      reportType: 'cached'
+    };
+    
+    logInfo(endpoint, `Served cached report for project: ${projectName}`, {
+      hasCachedData: true,
+      timestamp: cachedRun.timestamp
+    });
+    logApiResponse(endpoint, 200, reportData);
+    res.json(reportData);
+    
+  } catch (error) {
+    console.error('Error serving cached report:', error);
+    logError(endpoint, 'Error serving cached report', error);
+    const errorResponse = { 
+      error: 'Failed to serve cached report',
+      message: error.message 
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 

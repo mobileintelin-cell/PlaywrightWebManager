@@ -264,7 +264,7 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
                    
                     return (
                       <div key={`log-${index}`} className="flex items-start gap-2">
-                        <span className="text-slate-300 text-xs mt-0.5 flex-shrink-0">
+                        <span className="text-xs mt-0.5 flex-shrink-0" style={{ color: '#ffffff' }}>
                           {new Date().toLocaleTimeString()}
                         </span>
                         <span className="flex-1 break-words" style={logStyle}>{log}</span>
@@ -282,7 +282,7 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
                     
                     return (
                       <div key={`cmd-log-${index}`} className="flex items-start gap-2">
-                        <span className="text-slate-300 text-xs mt-0.5 flex-shrink-0">
+                        <span className="text-xs flex-shrink-0" style={{ color: '#ffffff' }}>
                           {new Date(logEntry.timestamp).toLocaleTimeString()}
                         </span>
                         <span className="text-slate-400 text-xs flex-shrink-0">
@@ -301,7 +301,7 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
                     
                     return (
                       <div key={`cmd-output-${index}`} className="flex items-start gap-2">
-                        <span className="text-slate-300 text-xs mt-0.5 flex-shrink-0">
+                        <span className="text-xs mt-0.5 flex-shrink-0" style={{ color: '#ffffff' }}>
                           {new Date(output.timestamp).toLocaleTimeString()}
                         </span>
                         <span className="text-slate-400 text-xs flex-shrink-0">
