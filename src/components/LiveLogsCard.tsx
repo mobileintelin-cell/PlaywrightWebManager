@@ -1,6 +1,5 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from "./ui/card";
-import { ScrollArea } from "./ui/scroll-area";
 import { Button } from "./ui/button";
 import { Badge } from "./ui/badge";
 import { Terminal, ArrowDown, Maximize2, Minimize2, Activity, Wifi, WifiOff } from "lucide-react";
@@ -234,8 +233,8 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
       </CardHeader>
       <CardContent>
         <div className="relative">
-          <ScrollArea 
-            className={`w-full rounded border bg-slate-950 p-4 ${isExpanded ? 'h-96' : 'h-64'}`}
+          <div 
+            className={`w-full rounded border bg-slate-950 p-4 overflow-y-auto scrollbar-white ${isExpanded ? 'h-96' : 'h-64'}`}
             ref={scrollAreaRef}
             onScrollCapture={handleScroll}
           >
@@ -314,7 +313,7 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
                 </>
               )}
             </div>
-          </ScrollArea>
+          </div>
           
           {/* Auto-scroll indicator */}
           {isAutoScroll && (logs.length > 0 || commandLogs.length > 0 || commandOutputs.length > 0) && (

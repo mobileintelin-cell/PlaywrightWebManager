@@ -407,6 +407,23 @@
 }
 
 @layer utilities {
+  .scrollbar-white::-webkit-scrollbar {
+    width: 8px;
+  }
+
+  .scrollbar-white::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-white::-webkit-scrollbar-thumb {
+    background: white;
+    border-radius: 4px;
+  }
+
+  .scrollbar-white::-webkit-scrollbar-thumb:hover {
+    background: #e5e7eb;
+  }
+
   .\@container\/card-header {
     container: card-header / inline-size;
   }
