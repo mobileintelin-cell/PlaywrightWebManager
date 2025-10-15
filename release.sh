@@ -35,6 +35,16 @@ else
     echo "✅ Dependencies already installed"
 fi
 
+# Build the frontend project
+echo "🏗️ Building the frontend project..."
+npm run build
+
+if [ $? -ne 0 ]; then
+    echo "❌ Frontend build failed! Exiting..."
+    exit 1
+fi
+echo "✅ Frontend build completed successfully!"
+
 # Stop existing PM2 process if running
 echo "🛑 Stopping existing PM2 processes..."
 pm2 stop playwright 2>/dev/null || echo "No existing playwright process found"
@@ -55,6 +65,34 @@ pm2 save
 echo "⚡ Setting up PM2 startup (auto-start on boot)..."
 pm2 startup
 
+# Deploy frontend to web server
+echo "🌐 Deploying frontend to web server..."
+
+# Check if nginx web directory exists
+if [ -d "/var/www/html" ]; then
+    echo "🗑️ Cleaning web server directory..."
+    sudo rm -rf /var/www/html/*
+    
+    echo "📋 Copying build files to web server..."
+    sudo cp -r build/* /var/www/html/
+    
+    if [ $? -ne 0 ]; then
+        echo "❌ Failed to copy files to web server! Continuing with backend deployment..."
+    else
+        echo "🔄 Reloading nginx..."
+        sudo systemctl reload nginx
+        
+        if [ $? -eq 0 ]; then
+            echo "✅ Frontend deployed successfully!"
+        else
+            echo "⚠️ Frontend deployed but nginx reload failed!"
+        fi
+    fi
+else
+    echo "⚠️ Web server directory /var/www/html not found. Skipping frontend deployment."
+    echo "   Make sure nginx is installed and configured."
+fi
+
 echo ""
 echo "🎉 Release completed successfully!"
 echo "=================================="
@@ -72,13 +110,15 @@ echo "  pm2 delete playwright        - Remove server from PM2"
 echo "  pm2 monit                    - Monitor server in real-time"
 echo ""
 echo "🌐 Server URLs:"
-echo "  Dashboard: http://localhost:3000"
-echo "  Reports:   http://localhost:9323"
+echo "  Dashboard (Backend): http://localhost:3000"
+echo "  Frontend (Web):      http://your-server-ip (nginx)"
+echo "  Reports:             http://localhost:9323"
 echo ""
 echo "📋 Next steps:"
-echo "  1. Open http://localhost:3000 in your browser"
-echo "  2. Select a Playwright project to manage"
-echo "  3. Use the 'Show Report' button to open Playwright reports"
+echo "  1. Open http://localhost:3000 for backend API"
+echo "  2. Open http://your-server-ip for frontend web interface"
+echo "  3. Select a Playwright project to manage"
+echo "  4. Use the 'Show Report' button to open Playwright reports"
 echo ""
 echo "🔧 Troubleshooting:"
 echo "  - Check logs: pm2 logs playwright"
