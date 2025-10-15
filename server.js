@@ -6,6 +6,37 @@ const { spawn } = require('child_process');
 const WebSocket = require('ws');
 const http = require('http');
 
+// Logging utilities
+const logInfo = (endpoint, message, data = {}) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[INFO] ${timestamp} - ${endpoint}: ${message}`, data);
+};
+
+const logDebug = (endpoint, message, data = {}) => {
+  const timestamp = new Date().toISOString();
+  console.log(`[DEBUG] ${timestamp} - ${endpoint}: ${message}`, data);
+};
+
+const logError = (endpoint, message, error = {}) => {
+  const timestamp = new Date().toISOString();
+  console.error(`[ERROR] ${timestamp} - ${endpoint}: ${message}`, error);
+};
+
+const logApiRequest = (method, endpoint, params = {}, query = {}, body = {}) => {
+  logInfo(endpoint, `${method} request received`, {
+    params,
+    query,
+    body: Object.keys(body).length > 0 ? body : undefined
+  });
+};
+
+const logApiResponse = (endpoint, statusCode, responseData = {}) => {
+  logInfo(endpoint, `Response sent with status ${statusCode}`, {
+    dataSize: JSON.stringify(responseData).length,
+    hasData: Object.keys(responseData).length > 0
+  });
+};
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -836,7 +867,11 @@ function getProjectStatus(lastModified) {
 
 // API endpoint to get all projects
 app.get('/api/projects', async (req, res) => {
+  const endpoint = '/api/projects';
+  logApiRequest('GET', endpoint, {}, req.query);
+  
   try {
+    logDebug(endpoint, `Reading projects from: ${PLAYWRIGHT_PROJECTS_PATH}`);
     console.log(`Reading projects from: ${PLAYWRIGHT_PROJECTS_PATH}`);
     
     // Check if the directory exists
@@ -894,22 +929,33 @@ app.get('/api/projects', async (req, res) => {
     // Sort projects by last modified (newest first)
     projects.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
     
+    logInfo(endpoint, `Found ${projects.length} projects`);
+    logApiResponse(endpoint, 200, projects);
     res.json(projects);
   } catch (error) {
+    logError(endpoint, 'Error reading projects', error);
     console.error('Error reading projects:', error);
-    res.status(500).json({ 
+    const errorResponse = { 
       error: 'Failed to read projects directory',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to search projects
 app.get('/api/projects/search', async (req, res) => {
+  const endpoint = '/api/projects/search';
+  logApiRequest('GET', endpoint, {}, req.query);
+  
   try {
     const { q: query } = req.query;
+    logDebug(endpoint, `Searching projects with query: "${query}"`);
     
     if (!query) {
+      logInfo(endpoint, 'No query provided, returning empty results');
+      logApiResponse(endpoint, 200, []);
       return res.json([]);
     }
     
@@ -960,25 +1006,35 @@ app.get('/api/projects/search', async (req, res) => {
       }
     }
     
+    logInfo(endpoint, `Found ${projects.length} matching projects for query: "${query}"`);
+    logApiResponse(endpoint, 200, projects);
     res.json(projects);
   } catch (error) {
+    logError(endpoint, 'Error searching projects', error);
     console.error('Error searching projects:', error);
-    res.status(500).json({ 
+    const errorResponse = { 
       error: 'Failed to search projects',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to create a test project
 app.post('/api/projects/create', async (req, res) => {
+  const endpoint = '/api/projects/create';
+  logApiRequest('POST', endpoint, {}, {}, req.body);
+  
   try {
     const { name, description } = req.body;
+    logDebug(endpoint, `Creating project with name: "${name}", description: "${description}"`);
     
     if (!name || name.trim() === '') {
-      return res.status(400).json({ 
-        error: 'Project name is required' 
-      });
+      logError(endpoint, 'Project name is required');
+      const errorResponse = { error: 'Project name is required' };
+      logApiResponse(endpoint, 400, errorResponse);
+      return res.status(400).json(errorResponse);
     }
     
     const projectName = name.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-');
@@ -1206,7 +1262,7 @@ ${description || 'A new Playwright test project'}
       readme
     );
     
-    res.json({ 
+    const successResponse = { 
       success: true, 
       message: 'Test project created successfully',
       project: {
@@ -1217,14 +1273,21 @@ ${description || 'A new Playwright test project'}
         description: description || 'A new Playwright test project',
         status: 'new'
       }
-    });
+    };
+    
+    logInfo(endpoint, `Project "${projectName}" created successfully`);
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
+    logError(endpoint, 'Error creating project', error);
     console.error('Error creating project:', error);
-    res.status(500).json({ 
+    const errorResponse = { 
       error: 'Failed to create project',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -1315,14 +1378,24 @@ app.get('/api/projects/:projectName/tests', async (req, res) => {
 
 // Simple test endpoint
 app.get('/api/test', (req, res) => {
-  res.json({ message: 'Server is working', timestamp: new Date().toISOString() });
+  const endpoint = '/api/test';
+  logApiRequest('GET', endpoint);
+  
+  const response = { message: 'Server is working', timestamp: new Date().toISOString() };
+  logInfo(endpoint, 'Health check endpoint called');
+  logApiResponse(endpoint, 200, response);
+  res.json(response);
 });
 
 // API endpoint to test browser launch
 app.post('/api/test-browser', async (req, res) => {
+  const endpoint = '/api/test-browser';
+  logApiRequest('POST', endpoint, {}, {}, req.body);
+  
   try {
-    console.log('Test browser endpoint called');
     const { runWithUI } = req.body;
+    logDebug(endpoint, `Test browser endpoint called with runWithUI: ${runWithUI}`);
+    console.log('Test browser endpoint called');
     console.log('runWithUI received:', runWithUI);
     
     const testScript = `
@@ -1394,49 +1467,73 @@ const { chromium } = require('@playwright/test');
           fs.unlinkSync(testFile);
         }
         
-        res.json({ 
+        const successResponse = { 
           success: code === 0, 
           output: output,
           error: errorOutput,
           code: code
-        });
+        };
+        logInfo(endpoint, `Browser test completed with exit code: ${code}`);
+        logApiResponse(endpoint, 200, successResponse);
+        res.json(successResponse);
       } catch (cleanupError) {
         console.error('Cleanup error:', cleanupError);
-        res.json({ 
+        const errorResponse = { 
           success: code === 0, 
           output: output,
           error: errorOutput,
           code: code,
           cleanupError: cleanupError.message
-        });
+        };
+        logError(endpoint, 'Cleanup error occurred', cleanupError);
+        logApiResponse(endpoint, 200, errorResponse);
+        res.json(errorResponse);
       }
     });
     
     childProcess.on('error', (error) => {
       console.error('Process spawn error:', error);
-      res.status(500).json({ 
+      logError(endpoint, 'Failed to spawn browser test process', error);
+      const errorResponse = { 
         error: 'Failed to spawn browser test process',
         message: error.message 
-      });
+      };
+      logApiResponse(endpoint, 500, errorResponse);
+      res.status(500).json(errorResponse);
     });
     
   } catch (error) {
     console.error('Test browser endpoint error:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Test browser endpoint error', error);
+    const errorResponse = { 
       error: 'Test browser endpoint error',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to run tests
 app.post('/api/projects/:projectName/run-tests', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/run-tests';
+  logApiRequest('POST', endpoint, req.params, {}, req.body);
+  
   try {
     const { projectName } = req.params;
     const { selectedTestFiles, username, password, websiteUrl, environment, testExecutionOrder, runWithUI: rawRunWithUI } = req.body;
     
     // Ensure runWithUI is a boolean
     const runWithUI = rawRunWithUI === true || rawRunWithUI === 'true';
+    
+    logDebug(endpoint, `Running tests for project: ${projectName}`, {
+      selectedTestFiles: selectedTestFiles?.length || 0,
+      hasCredentials: !!(username && password),
+      websiteUrl,
+      environment,
+      testExecutionOrder,
+      runWithUI
+    });
     
     const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
     
@@ -2011,11 +2108,20 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       cacheTestRun(projectName, testResults);
 
       // Send response
-      res.json({
+      const successResponse = {
         success: code === 0 && !hasError,
         message: code === 0 ? 'Test execution completed' : 'Test execution completed with errors',
         results: testResults
+      };
+      logInfo(endpoint, `Test execution completed for project: ${projectName}`, {
+        success: successResponse.success,
+        totalTests: testResults.totalTests,
+        passed: testResults.passed,
+        failed: testResults.failed,
+        exitCode: code
       });
+      logApiResponse(endpoint, 200, successResponse);
+      res.json(successResponse);
     });
     
     // Handle process errors
@@ -2026,7 +2132,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
       commandLog.addLog('error', `Process error: ${error.message}`);
       commandLog.complete(-1);
       
-      res.status(500).json({
+      const errorResponse = {
         success: false,
         error: 'Failed to start Playwright process',
         message: error.message,
@@ -2047,22 +2153,32 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
           timestamp: new Date().toISOString(),
           commandLogId: commandLog.id
         }
-      });
+      };
+      logError(endpoint, 'Failed to start Playwright process', error);
+      logApiResponse(endpoint, 500, errorResponse);
+      res.status(500).json(errorResponse);
     });
     
   } catch (error) {
     console.error('Error running tests:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error running tests', error);
+    const errorResponse = { 
       error: 'Failed to run tests',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to open test file
 app.get('/api/projects/:projectName/test-file/:fileName', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/test-file/:fileName';
+  logApiRequest('GET', endpoint, req.params);
+  
   try {
     const { projectName, fileName } = req.params;
+    logDebug(endpoint, `Opening test file: ${fileName} for project: ${projectName}`);
     const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
     const testFilePath = path.join(projectPath, 'tests', fileName);
     
@@ -2090,7 +2206,7 @@ app.get('/api/projects/:projectName/test-file/:fileName', async (req, res) => {
     const content = await fs.readFile(testFilePath, 'utf8');
     const stats = await getFileStats(testFilePath);
     
-    res.json({
+    const successResponse = {
       success: true,
       file: {
         name: fileName,
@@ -2099,21 +2215,35 @@ app.get('/api/projects/:projectName/test-file/:fileName', async (req, res) => {
         lastModified: stats ? stats.lastModified : null,
         size: stats ? stats.size : 0
       }
+    };
+    
+    logInfo(endpoint, `Successfully read test file: ${fileName}`, {
+      fileSize: content.length,
+      lastModified: stats?.lastModified
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error reading test file:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error reading test file', error);
+    const errorResponse = { 
       error: 'Failed to read test file',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to generate test report
 app.get('/api/projects/:projectName/report', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/report';
+  logApiRequest('GET', endpoint, req.params);
+  
   try {
     const { projectName } = req.params;
+    logDebug(endpoint, `Generating report for project: ${projectName}`);
     const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
     
     // Check if project exists
@@ -2160,19 +2290,29 @@ app.get('/api/projects/:projectName/report', async (req, res) => {
       reports = [sampleReport];
     }
     
-    res.json({
+    const successResponse = {
       success: true,
       project: projectName,
       reports,
       latestReport: reports[0] || null
+    };
+    
+    logInfo(endpoint, `Generated report for project: ${projectName}`, {
+      reportCount: reports.length,
+      hasLatestReport: !!reports[0]
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error generating test report:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error generating test report', error);
+    const errorResponse = { 
       error: 'Failed to generate test report',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -2299,50 +2439,80 @@ app.get('/api/projects/:projectName/report/:reportFile', async (req, res) => {
 
 // API endpoint to get cached test run status for a project
 app.get('/api/projects/:projectName/test-status', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/test-status';
+  logApiRequest('GET', endpoint, req.params);
+  
   try {
     const { projectName } = req.params;
+    logDebug(endpoint, `Getting test status for project: ${projectName}`);
     const cachedRun = getCachedTestRun(projectName);
     
     if (!cachedRun) {
-      return res.json({
+      const noCacheResponse = {
         success: true,
         hasCache: false,
         message: 'No cached test run found for this project'
-      });
+      };
+      logInfo(endpoint, `No cached test run found for project: ${projectName}`);
+      logApiResponse(endpoint, 200, noCacheResponse);
+      return res.json(noCacheResponse);
     }
     
-    res.json({
+    const successResponse = {
       success: true,
       hasCache: true,
       cachedRun
+    };
+    
+    logInfo(endpoint, `Found cached test run for project: ${projectName}`, {
+      hasCache: true,
+      executionTime: cachedRun.executionTime
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting cached test status:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting cached test status', error);
+    const errorResponse = { 
       error: 'Failed to get cached test status',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to get all cached test run statuses
 app.get('/test-status/all', async (req, res) => {
+  const endpoint = '/test-status/all';
+  logApiRequest('GET', endpoint);
+  
   try {
     const allCachedRuns = getAllCachedTestRuns();
+    logDebug(endpoint, `Retrieved ${Object.keys(allCachedRuns).length} cached test runs`);
     
-    res.json({
+    const successResponse = {
       success: true,
       cachedRuns: allCachedRuns,
       totalCached: allCachedRuns.length
+    };
+    
+    logInfo(endpoint, `Retrieved all cached test runs`, {
+      totalCached: allCachedRuns.length
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting all cached test statuses:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting all cached test statuses', error);
+    const errorResponse = { 
       error: 'Failed to get cached test statuses',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -2418,7 +2588,7 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
     res.json({
       success: true,
       message: 'Playwright report server started',
-      url: 'http://192.168.0.144:9323'
+      url: 'http://localhost:9323'
     });
     
   } catch (error) {
@@ -2494,8 +2664,12 @@ app.post('/api/projects/:projectName/clear-cache', async (req, res) => {
 
 // API endpoint to get environment configuration
 app.get('/api/environments', async (req, res) => {
+  const endpoint = '/api/environments';
+  logApiRequest('GET', endpoint, {}, req.query);
+  
   try {
     const { projectPath } = req.query;
+    logDebug(endpoint, `Getting environments for project path: ${projectPath}`);
     
     console.log('GET /api/environments - Request received:', {
       projectPath,
@@ -2512,26 +2686,44 @@ app.get('/api/environments', async (req, res) => {
       defaultEnvironment: environmentConfig.defaultEnvironment
     });
     
-    res.json({
+    const successResponse = {
       success: true,
       environments: environmentConfig.environments,
       defaultEnvironment: environmentConfig.defaultEnvironment,
       errorContext: environmentConfig.errorContext
+    };
+    
+    logInfo(endpoint, `Retrieved environment configuration`, {
+      environmentCount: Object.keys(environmentConfig.environments || {}).length,
+      defaultEnvironment: environmentConfig.defaultEnvironment
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting environment configuration:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting environment configuration', error);
+    const errorResponse = { 
       error: 'Failed to get environment configuration',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to update environment configuration
 app.put('/api/environments', async (req, res) => {
+  const endpoint = '/api/environments';
+  logApiRequest('PUT', endpoint, {}, {}, req.body);
+  
   try {
     const { environments, defaultEnvironment, errorContext } = req.body;
+    logDebug(endpoint, `Updating environment configuration`, {
+      hasEnvironments: !!environments,
+      defaultEnvironment,
+      hasErrorContext: !!errorContext
+    });
     
     if (!environmentConfig) {
       await loadEnvironmentConfig(null);
@@ -2551,27 +2743,41 @@ app.put('/api/environments', async (req, res) => {
     // Save to file
     await saveEnvironmentConfig();
     
-    res.json({
+    const successResponse = {
       success: true,
       message: 'Environment configuration updated successfully',
       environments: environmentConfig.environments,
       defaultEnvironment: environmentConfig.defaultEnvironment,
       errorContext: environmentConfig.errorContext
+    };
+    
+    logInfo(endpoint, `Environment configuration updated successfully`, {
+      environmentCount: Object.keys(environmentConfig.environments || {}).length,
+      defaultEnvironment: environmentConfig.defaultEnvironment
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error updating environment configuration:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error updating environment configuration', error);
+    const errorResponse = { 
       error: 'Failed to update environment configuration',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to get specific environment
 app.get('/api/environments/:envId', async (req, res) => {
+  const endpoint = '/api/environments/:envId';
+  logApiRequest('GET', endpoint, req.params);
+  
   try {
     const { envId } = req.params;
+    logDebug(endpoint, `Getting specific environment: ${envId}`);
     
     if (!environmentConfig) {
       await loadEnvironmentConfig(null);
@@ -2580,26 +2786,39 @@ app.get('/api/environments/:envId', async (req, res) => {
     const environment = environmentConfig.environments[envId];
     
     if (!environment) {
-      return res.status(404).json({
+      const notFoundResponse = {
         error: 'Environment not found',
         message: `Environment "${envId}" does not exist`
-      });
+      };
+      logError(endpoint, `Environment not found: ${envId}`);
+      logApiResponse(endpoint, 404, notFoundResponse);
+      return res.status(404).json(notFoundResponse);
     }
     
-    res.json({
+    const successResponse = {
       success: true,
       environment: {
         id: envId,
         ...environment
       }
+    };
+    
+    logInfo(endpoint, `Retrieved environment: ${envId}`, {
+      environmentName: environment.name,
+      hasUrl: !!environment.url
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting environment:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting environment', error);
+    const errorResponse = { 
       error: 'Failed to get environment',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -2676,9 +2895,13 @@ app.put('/api/environments/:envId', async (req, res) => {
 
 // API endpoint to load Playwright config from external file
 app.get('/api/projects/:projectName/playwright-config', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/playwright-config';
+  logApiRequest('GET', endpoint, req.params, req.query);
+  
   try {
     const { projectName } = req.params;
     const { configPath } = req.query;
+    logDebug(endpoint, `Getting playwright config for project: ${projectName}`, { configPath });
     
     let targetConfigPath;
     
@@ -2748,34 +2971,52 @@ app.get('/api/projects/:projectName/playwright-config', async (req, res) => {
         }
       }
       
-      res.json({
+      const successResponse = {
         success: true,
         configPath: targetConfigPath,
         config: configData
+      };
+      
+      logInfo(endpoint, `Retrieved playwright config for project: ${projectName}`, {
+        configPath: targetConfigPath,
+        projectCount: configData.projects.length,
+        hasBaseURLs: Object.keys(configData.baseURLs).length > 0
       });
+      logApiResponse(endpoint, 200, successResponse);
+      res.json(successResponse);
       
     } catch (readError) {
       console.error('Error reading Playwright config file:', readError);
-      res.status(404).json({
+      logError(endpoint, 'Config file not found', readError);
+      const notFoundResponse = {
         error: 'Config file not found',
         message: `Could not read config file at ${targetConfigPath}`,
         path: targetConfigPath
-      });
+      };
+      logApiResponse(endpoint, 404, notFoundResponse);
+      res.status(404).json(notFoundResponse);
     }
     
   } catch (error) {
     console.error('Error loading Playwright config:', error);
-    res.status(500).json({
+    logError(endpoint, 'Error loading Playwright config', error);
+    const errorResponse = {
       error: 'Failed to load Playwright config',
       message: error.message
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to save updated Playwright config
 app.put('/api/projects/:projectName/playwright-config', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/playwright-config';
+  logApiRequest('PUT', endpoint, req.params, {}, req.body);
+  
   try {
     const { projectName } = req.params;
+    logDebug(endpoint, `Updating playwright config for project: ${projectName}`);
     const { configPath, baseURLs, projects } = req.body;
     
     let targetConfigPath;
@@ -2827,27 +3068,39 @@ app.put('/api/projects/:projectName/playwright-config', async (req, res) => {
       // Write updated config
       await fs.writeFile(targetConfigPath, updatedContent);
       
-      res.json({
+      const successResponse = {
         success: true,
         message: 'Playwright config updated successfully',
         configPath: targetConfigPath
+      };
+      
+      logInfo(endpoint, `Playwright config updated successfully for project: ${projectName}`, {
+        configPath: targetConfigPath
       });
+      logApiResponse(endpoint, 200, successResponse);
+      res.json(successResponse);
       
     } catch (writeError) {
       console.error('Error writing Playwright config file:', writeError);
-      res.status(500).json({
+      logError(endpoint, 'Failed to write config file', writeError);
+      const writeErrorResponse = {
         error: 'Failed to write config file',
         message: `Could not write to ${targetConfigPath}`,
         path: targetConfigPath
-      });
+      };
+      logApiResponse(endpoint, 500, writeErrorResponse);
+      res.status(500).json(writeErrorResponse);
     }
     
   } catch (error) {
     console.error('Error updating Playwright config:', error);
-    res.status(500).json({
+    logError(endpoint, 'Error updating Playwright config', error);
+    const errorResponse = {
       error: 'Failed to update Playwright config',
       message: error.message
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -3035,8 +3288,18 @@ const getPlaywrightEnvironmentIcon = (projectName) => {
 
 // API endpoint to get all command logs
 app.get('/api/command-logs', async (req, res) => {
+  const endpoint = '/api/command-logs';
+  logApiRequest('GET', endpoint, {}, req.query);
+  
   try {
     const { limit = 50, status, projectName, startDate, endDate } = req.query;
+    logDebug(endpoint, `Getting command logs with filters`, {
+      limit,
+      status,
+      projectName,
+      startDate,
+      endDate
+    });
     
     const filters = {};
     if (status) filters.status = status;
@@ -3047,53 +3310,91 @@ app.get('/api/command-logs', async (req, res) => {
     const logs = searchCommandLogs('', filters);
     const limitedLogs = logs.slice(0, parseInt(limit));
     
-    res.json({
+    const successResponse = {
       success: true,
       logs: limitedLogs.map(log => log.toJSON()),
       total: logs.length,
       filters
+    };
+    
+    logInfo(endpoint, `Retrieved command logs`, {
+      returnedCount: limitedLogs.length,
+      totalCount: logs.length,
+      filters
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting command logs:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting command logs', error);
+    const errorResponse = { 
       error: 'Failed to get command logs',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to get specific command log
 app.get('/api/command-logs/:commandId', async (req, res) => {
+  const endpoint = '/api/command-logs/:commandId';
+  logApiRequest('GET', endpoint, req.params);
+  
   try {
     const { commandId } = req.params;
+    logDebug(endpoint, `Getting specific command log: ${commandId}`);
     const commandLog = getCommandLog(commandId);
     
     if (!commandLog) {
-      return res.status(404).json({
+      const notFoundResponse = {
         error: 'Command log not found',
         message: `Command log with ID "${commandId}" does not exist`
-      });
+      };
+      logError(endpoint, `Command log not found: ${commandId}`);
+      logApiResponse(endpoint, 404, notFoundResponse);
+      return res.status(404).json(notFoundResponse);
     }
     
-    res.json({
+    const successResponse = {
       success: true,
       commandLog: commandLog.toJSON()
+    };
+    
+    logInfo(endpoint, `Retrieved command log: ${commandId}`, {
+      status: commandLog.status,
+      projectName: commandLog.projectName
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting command log:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting command log', error);
+    const errorResponse = { 
       error: 'Failed to get command log',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to search command logs
 app.get('/api/command-logs/search', async (req, res) => {
+  const endpoint = '/api/command-logs/search';
+  logApiRequest('GET', endpoint, {}, req.query);
+  
   try {
     const { q: query, status, projectName, startDate, endDate, limit = 50 } = req.query;
+    logDebug(endpoint, `Searching command logs with query: "${query}"`, {
+      status,
+      projectName,
+      startDate,
+      endDate,
+      limit
+    });
     
     const filters = {};
     if (status) filters.status = status;
@@ -3104,63 +3405,104 @@ app.get('/api/command-logs/search', async (req, res) => {
     const logs = searchCommandLogs(query, filters);
     const limitedLogs = logs.slice(0, parseInt(limit));
     
-    res.json({
+    const successResponse = {
       success: true,
       logs: limitedLogs.map(log => log.toJSON()),
       total: logs.length,
       query,
       filters
+    };
+    
+    logInfo(endpoint, `Searched command logs with query: "${query}"`, {
+      returnedCount: limitedLogs.length,
+      totalCount: logs.length,
+      filters
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error searching command logs:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error searching command logs', error);
+    const errorResponse = { 
       error: 'Failed to search command logs',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to get command history
 app.get('/api/command-history', async (req, res) => {
+  const endpoint = '/api/command-history';
+  logApiRequest('GET', endpoint, {}, req.query);
+  
   try {
     const { limit = 50 } = req.query;
+    logDebug(endpoint, `Getting command history with limit: ${limit}`);
     const history = getCommandHistory(parseInt(limit));
     
-    res.json({
+    const successResponse = {
       success: true,
       history: history.map(log => log.toJSON()),
       total: history.length
+    };
+    
+    logInfo(endpoint, `Retrieved command history`, {
+      totalCount: history.length,
+      limit
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting command history:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting command history', error);
+    const errorResponse = { 
       error: 'Failed to get command history',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
 // API endpoint to get active/running commands
 app.get('/api/command-logs/active', async (req, res) => {
+  const endpoint = '/api/command-logs/active';
+  logApiRequest('GET', endpoint);
+  
   try {
     const activeLogs = Array.from(commandLogs.values())
       .filter(log => log.status === 'running')
       .map(log => log.toJSON());
     
-    res.json({
+    logDebug(endpoint, `Retrieved active command logs`, {
+      activeCount: activeLogs.length
+    });
+    
+    const successResponse = {
       success: true,
       activeCommands: activeLogs,
       count: activeLogs.length
+    };
+    
+    logInfo(endpoint, `Retrieved active command logs`, {
+      activeCount: activeLogs.length
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error getting active commands:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error getting active commands', error);
+    const errorResponse = { 
       error: 'Failed to get active commands',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
@@ -3268,19 +3610,30 @@ app.delete('/api/command-logs', async (req, res) => {
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
+  const endpoint = '/api/health';
+  logApiRequest('GET', endpoint);
+  
+  const healthResponse = { 
     status: 'OK', 
     timestamp: new Date().toISOString(),
     activeConnections: activeConnections.size,
     commandLogsCount: commandLogs.size,
     commandHistoryCount: commandHistory.length
+  };
+  
+  logInfo(endpoint, 'Health check endpoint called', {
+    activeConnections: activeConnections.size,
+    commandLogsCount: commandLogs.size,
+    commandHistoryCount: commandHistory.length
   });
+  logApiResponse(endpoint, 200, healthResponse);
+  res.json(healthResponse);
 });
 
 server.listen(PORT, '0.0.0.0', async () => {
   console.log(`Server running on http://0.0.0.0:${PORT}`);
   console.log(`Server accessible on http://localhost:${PORT}`);
-  console.log(`Server accessible on http://192.168.0.144:${PORT}`);
+  console.log(`Server accessible on http://localhost:${PORT}`);
   console.log(`WebSocket server running on ws://0.0.0.0:${PORT}`);
   console.log(`Playwright projects path: ${PLAYWRIGHT_PROJECTS_PATH}`);
   console.log(`Command log monitoring enabled`);
