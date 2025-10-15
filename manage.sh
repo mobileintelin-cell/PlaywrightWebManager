@@ -61,6 +61,6 @@ case "$1" in
         echo ""
         echo "🌐 Server URLs:"
         echo "  Dashboard: http://localhost:3000"
-        echo "  Reports:   http://192.168.0.144:9323"
+        echo "  Reports:   http://localhost:9323"
         ;;
 esac
