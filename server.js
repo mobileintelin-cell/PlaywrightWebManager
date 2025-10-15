@@ -2557,27 +2557,79 @@ app.delete('/test-status/all', async (req, res) => {
 
 // API endpoint to start Playwright report server
 app.post('/api/projects/:projectName/start-report', async (req, res) => {
+  const endpoint = '/api/projects/:projectName/start-report';
+  logApiRequest('POST', endpoint, req.params, {}, req.body);
+  
   try {
     const { projectName } = req.params;
+    logDebug(endpoint, `Starting report server for project: ${projectName}`);
     const projectPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName);
     
     // Check if project exists
     try {
       await fs.access(projectPath);
     } catch (error) {
-      return res.status(404).json({ 
+      logError(endpoint, `Project not found: ${projectName}`, error);
+      const notFoundResponse = { 
         error: 'Project not found',
         message: `Project "${projectName}" does not exist`
+      };
+      logApiResponse(endpoint, 404, notFoundResponse);
+      return res.status(404).json(notFoundResponse);
+    }
+    
+    // Kill any existing process using port 9323
+    console.log('=== KILLING EXISTING PROCESSES ON PORT 9323 ===');
+    try {
+      const killProcess = spawn('lsof', ['-ti:9323'], { stdio: 'pipe' });
+      let pidOutput = '';
+      
+      killProcess.stdout.on('data', (data) => {
+        pidOutput += data.toString();
       });
+      
+      killProcess.on('close', (code) => {
+        if (code === 0 && pidOutput.trim()) {
+          const pids = pidOutput.trim().split('\n');
+          console.log(`Found processes using port 9323: ${pids.join(', ')}`);
+          
+          pids.forEach(pid => {
+            if (pid.trim()) {
+              console.log(`Killing process ${pid.trim()}`);
+              try {
+                process.kill(parseInt(pid.trim()), 'SIGTERM');
+                console.log(`Successfully killed process ${pid.trim()}`);
+              } catch (killError) {
+                console.log(`Failed to kill process ${pid.trim()}: ${killError.message}`);
+                // Try SIGKILL as fallback
+                try {
+                  process.kill(parseInt(pid.trim()), 'SIGKILL');
+                  console.log(`Successfully force-killed process ${pid.trim()}`);
+                } catch (forceKillError) {
+                  console.log(`Failed to force-kill process ${pid.trim()}: ${forceKillError.message}`);
+                }
+              }
+            }
+          });
+        } else {
+          console.log('No existing processes found on port 9323');
+        }
+      });
+      
+      // Wait a moment for processes to be killed
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (killError) {
+      console.log('Error checking/killing existing processes:', killError.message);
+      // Continue anyway, the spawn might still work
     }
     
     // Start the Playwright report server
     console.log('=== EXECUTING PLAYWRIGHT REPORT COMMAND ===');
-    console.log(`Full command: npx playwright show-report --host localhost --port 9323`);
+    console.log(`Full command: npx playwright show-report --host 0.0.0.0 --port 9323`);
     console.log(`Working directory: ${projectPath}`);
     console.log('==========================================');
     
-    const reportProcess = spawn('npx', ['playwright', 'show-report', '--host', 'localhost', '--port', '9323'], {
+    const reportProcess = spawn('npx', ['playwright', 'show-report', '--host', '0.0.0.0', '--port', '9323'], {
       cwd: projectPath,
       detached: true,
       stdio: 'ignore'
@@ -2585,18 +2637,27 @@ app.post('/api/projects/:projectName/start-report', async (req, res) => {
     
     reportProcess.unref();
     
-    res.json({
+    const successResponse = {
       success: true,
       message: 'Playwright report server started',
-      url: 'http://localhost:9323'
+      url: 'http://0.0.0.0:9323'
+    };
+    
+    logInfo(endpoint, `Report server started for project: ${projectName}`, {
+      url: successResponse.url
     });
+    logApiResponse(endpoint, 200, successResponse);
+    res.json(successResponse);
     
   } catch (error) {
     console.error('Error starting report server:', error);
-    res.status(500).json({ 
+    logError(endpoint, 'Error starting report server', error);
+    const errorResponse = { 
       error: 'Failed to start report server',
       message: error.message 
-    });
+    };
+    logApiResponse(endpoint, 500, errorResponse);
+    res.status(500).json(errorResponse);
   }
 });
 
