@@ -41,8 +41,9 @@ export function LiveLogsCard({ logs }: LiveLogsCardProps) {
   useEffect(() => {
     const connectWebSocket = () => {
       // Use configured WebSocket URL
-      const wsUrl = getWsUrl();
-      
+      // const wsUrl = getWsUrl();
+      const wsScheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
+      const wsUrl = wsScheme + window.location.host;
       console.log('LiveLogsCard: Attempting to connect to:', wsUrl);
       wsRef.current = new WebSocket(wsUrl);
       
