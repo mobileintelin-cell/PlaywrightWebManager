@@ -3032,6 +3032,7 @@ app.get('/api/projects/:projectName/playwright-config', async (req, res) => {
   
   try {
     const { projectName } = req.params;
+    logDebug(endpoint, `Base project path: ${PLAYWRIGHT_PROJECTS_PATH} with projectName ${projectName}`);
     const configPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName, "playwright.config.ts");
     logDebug(endpoint, `Getting playwright config for project: ${projectName}`, { configPath });
     
