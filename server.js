@@ -871,7 +871,7 @@ app.get('/api/projects', async (req, res) => {
   logApiRequest('GET', endpoint, {}, req.query);
   
   try {
-    logDebug(endpoint, `Reading projects from: ${PLAYWRIGHT_PROJECTS_PATH}`);
+    logDebug(endpoint, `Reading projects from: `);
     console.log(`Reading projects from: ${PLAYWRIGHT_PROJECTS_PATH}`);
     
     // Check if the directory exists
@@ -3032,7 +3032,7 @@ app.get('/api/projects/:projectName/playwright-config', async (req, res) => {
   
   try {
     const { projectName } = req.params;
-    const { configPath } = ${PLAYWRIGHT_PROJECTS_PATH} + "/" + ${projectName} + "/playwright.config.ts";
+    const { configPath } = PLAYWRIGHT_PROJECTS_PATH + "/" + projectName + "/playwright.config.ts";
     logDebug(endpoint, `Getting playwright config for project: ${projectName}`, { configPath });
     
     let targetConfigPath;
