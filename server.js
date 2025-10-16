@@ -774,7 +774,7 @@ const getAllCachedTestRuns = () => {
 };
 
 // Path to the playwright projects directory
-const PLAYWRIGHT_PROJECTS_PATH = path.join(process.env.HOME || '/home', 'Documents/auto/playwright');
+const PLAYWRIGHT_PROJECTS_PATH = path.join(process.env.HOME || '/home', 'Documents/auto');
 
 // Helper function to get file stats
 async function getFileStats(filePath) {
