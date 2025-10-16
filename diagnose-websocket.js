@@ -8,7 +8,7 @@ async function diagnoseWebSocket() {
   // Test 1: Check if server is running
   console.log('1. Testing HTTP server...');
   try {
-    const response = await fetch('http://localhost:3001/api/health');
+    const response = await fetch('http://0.0.0.0:3001/api/health');
     const data = await response.json();
     console.log('✅ HTTP server is running');
     console.log(`   Active connections: ${data.activeConnections}`);
@@ -22,7 +22,7 @@ async function diagnoseWebSocket() {
   
   // Test 2: Test WebSocket connection
   console.log('\n2. Testing WebSocket connection...');
-  const ws = new WebSocket('ws://localhost:3001');
+  const ws = new WebSocket('ws://0.0.0.0:3001');
   
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
