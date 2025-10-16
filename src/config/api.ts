@@ -3,6 +3,7 @@
 export const API_BASE_URL = '/api';
 const wsScheme = window.location.protocol === 'https:' ? 'wss://' : 'ws://';
 export const WS_BASE_URL = wsScheme + window.location.host;
+// export const WS_BASE_URL = 'ws://192.168.0.144:3001';
 
 // For production deployment (when frontend and backend are on same server):
 // export const API_BASE_URL = '/api';
