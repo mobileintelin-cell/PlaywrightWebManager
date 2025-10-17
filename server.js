@@ -1680,7 +1680,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     // Build the Playwright command
     const playwrightArgs = [
       'test',
-      // `--project=${playwrightProject}`,
+      `--project=${environment}`,
       // '--reporter=json'
       //not need it
     ];
