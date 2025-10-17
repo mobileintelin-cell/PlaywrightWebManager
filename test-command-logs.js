@@ -5,7 +5,7 @@ async function testCommandLogMonitoring() {
   console.log('Testing Command Log Monitoring...');
   
   // Test WebSocket connection
-  const ws = new WebSocket('ws://localhost:3001');
+  const ws = new WebSocket('ws://localhost:3000');
   
   ws.on('open', () => {
     console.log('✅ WebSocket connection established');
@@ -44,17 +44,17 @@ async function testCommandLogMonitoring() {
       console.log('\n📊 Testing API endpoints...');
       
       // Test health endpoint
-      const healthResponse = await fetch('http://localhost:3001/api/health');
+      const healthResponse = await fetch('http://localhost:3000/api/health');
       const healthData = await healthResponse.json();
       console.log('✅ Health check:', healthData);
       
       // Test command logs endpoint
-      const logsResponse = await fetch('http://localhost:3001/api/command-logs');
+      const logsResponse = await fetch('http://localhost:3000/api/command-logs');
       const logsData = await logsResponse.json();
       console.log('✅ Command logs:', logsData.logs?.length || 0, 'logs found');
       
       // Test active commands endpoint
-      const activeResponse = await fetch('http://localhost:3001/api/command-logs/active');
+      const activeResponse = await fetch('http://localhost:3000/api/command-logs/active');
       const activeData = await activeResponse.json();
       console.log('✅ Active commands:', activeData.count || 0, 'active commands');
       

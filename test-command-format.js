@@ -24,7 +24,7 @@ async function testCommandFormat() {
     console.log(`- Test files: ${testData.selectedTestFiles.join(', ')}\n`);
     
     // Note: This will fail if the project doesn't exist, but we'll see the command format in the logs
-    const response = await fetch(`http://localhost:3001/api/projects/${projectName}/run-tests`, {
+    const response = await fetch(`http://localhost:3000/api/projects/${projectName}/run-tests`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

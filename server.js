@@ -38,7 +38,7 @@ const logApiResponse = (endpoint, statusCode, responseData = {}) => {
 };
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Create HTTP server
 const server = http.createServer(app);
