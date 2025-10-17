@@ -774,7 +774,7 @@ const getAllCachedTestRuns = () => {
 };
 
 // Path to the playwright projects directory
-const PLAYWRIGHT_PROJECTS_PATH = path.join(process.env.HOME || '/home', 'Documents/auto');
+const PLAYWRIGHT_PROJECTS_PATH = path.join(process.env.HOME || '/home/pc', 'Documents/auto');
 
 // Helper function to get file stats
 async function getFileStats(filePath) {
@@ -1585,7 +1585,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     
     // First try to get Playwright project configuration
     try {
-      const playwrightConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+      const playwrightConfigPath = path.join(projectPath, 'playwright.config.ts');
       const configContent = await fs.readFile(playwrightConfigPath, 'utf8');
       
       // Extract project configurations
