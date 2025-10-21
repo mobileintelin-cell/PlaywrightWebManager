@@ -8,7 +8,7 @@ async function diagnoseWebSocket() {
   // Test 1: Check if server is running
   console.log('1. Testing HTTP server...');
   try {
-    const response = await fetch('http://localhost:3001/api/health');
+    const response = await fetch('http://0.0.0.0:3000/api/health');
     const data = await response.json();
     console.log('✅ HTTP server is running');
     console.log(`   Active connections: ${data.activeConnections}`);
@@ -22,7 +22,7 @@ async function diagnoseWebSocket() {
   
   // Test 2: Test WebSocket connection
   console.log('\n2. Testing WebSocket connection...');
-  const ws = new WebSocket('ws://localhost:3001');
+  const ws = new WebSocket('ws://0.0.0.0:3000');
   
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {
@@ -59,7 +59,7 @@ async function diagnoseWebSocket() {
       console.log('   Code:', error.code);
       
       if (error.code === 'ECONNREFUSED') {
-        console.log('   Solution: Make sure server is running on port 3001');
+        console.log('   Solution: Make sure server is running on port 3000');
       } else if (error.code === 'ENOTFOUND') {
         console.log('   Solution: Check if localhost is resolving correctly');
       }
@@ -80,7 +80,7 @@ diagnoseWebSocket().then(() => {
   console.log('1. Check server is running: npm run server');
   console.log('2. Check browser console for errors');
   console.log('3. Try opening test-websocket-browser.html in browser');
-  console.log('4. Check if port 3001 is accessible');
+  console.log('4. Check if port 3000 is accessible');
   console.log('\nIf HTTP works but WebSocket fails:');
   console.log('1. Check WebSocket server configuration');
   console.log('2. Check firewall settings');

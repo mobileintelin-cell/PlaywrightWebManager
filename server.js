@@ -38,7 +38,7 @@ const logApiResponse = (endpoint, statusCode, responseData = {}) => {
 };
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3000;
 
 // Create HTTP server
 const server = http.createServer(app);
@@ -774,7 +774,7 @@ const getAllCachedTestRuns = () => {
 };
 
 // Path to the playwright projects directory
-const PLAYWRIGHT_PROJECTS_PATH = path.join(process.env.HOME || '/home', 'Documents/auto/playwright');
+const PLAYWRIGHT_PROJECTS_PATH = path.join(process.env.HOME || '/home/pc', 'Documents/auto');
 
 // Helper function to get file stats
 async function getFileStats(filePath) {
@@ -871,7 +871,7 @@ app.get('/api/projects', async (req, res) => {
   logApiRequest('GET', endpoint, {}, req.query);
   
   try {
-    logDebug(endpoint, `Reading projects from: ${PLAYWRIGHT_PROJECTS_PATH}`);
+    logDebug(endpoint, `Reading projects from: `);
     console.log(`Reading projects from: ${PLAYWRIGHT_PROJECTS_PATH}`);
     
     // Check if the directory exists
@@ -1585,7 +1585,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     
     // First try to get Playwright project configuration
     try {
-      const playwrightConfigPath = '/Users/tam.ct/Documents/auto/playwright/hrm/playwright.config.ts';
+      const playwrightConfigPath = path.join(projectPath, 'playwright.config.ts');
       const configContent = await fs.readFile(playwrightConfigPath, 'utf8');
       
       // Extract project configurations
@@ -1680,7 +1680,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     // Build the Playwright command
     const playwrightArgs = [
       'test',
-      // `--project=${playwrightProject}`,
+      `--project=${environment}`,
       // '--reporter=json'
       //not need it
     ];
@@ -1702,7 +1702,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
         testExecutionOrder.forEach(testCase => {
           const [fileName, testName] = testCase.split(':');
           // Add test file path first, then grep pattern
-          playwrightArgs.push(path.join('tests', fileName), `--grep=${testName}`);
+          playwrightArgs.push(path.join('tests', fileName), `--grep=${testName}$`);
         });
       } else {
         // Execute entire test files
@@ -3032,7 +3032,8 @@ app.get('/api/projects/:projectName/playwright-config', async (req, res) => {
   
   try {
     const { projectName } = req.params;
-    const { configPath } = req.query;
+    logDebug(endpoint, `Base project path: ${PLAYWRIGHT_PROJECTS_PATH} with projectName ${projectName}`);
+    const configPath = path.join(PLAYWRIGHT_PROJECTS_PATH, projectName, "playwright.config.ts");
     logDebug(endpoint, `Getting playwright config for project: ${projectName}`, { configPath });
     
     let targetConfigPath;

@@ -35,6 +35,11 @@ else
     echo "✅ Dependencies already installed"
 fi
 
+# IMPORTANT: Clean build folder before building
+echo "🗑️ Cleaning old build files..."
+rm -rf build/
+echo "✅ Old build files cleaned!"
+
 # Build the frontend project
 echo "🏗️ Building the frontend project..."
 npm run build
@@ -70,18 +75,22 @@ echo "🌐 Deploying frontend to web server..."
 
 # Check if nginx web directory exists
 if [ -d "/var/www/html" ]; then
-    echo "🗑️ Cleaning web server directory..."
+    echo "🗑️ Cleaning web server directory completely..."
     sudo rm -rf /var/www/html/*
-    
+
     echo "📋 Copying build files to web server..."
     sudo cp -r build/* /var/www/html/
-    
+
     if [ $? -ne 0 ]; then
         echo "❌ Failed to copy files to web server! Continuing with backend deployment..."
     else
+        # Clear nginx cache
+        echo "🧹 Clearing nginx cache..."
+        sudo rm -rf /var/cache/nginx/*
+
         echo "🔄 Reloading nginx..."
         sudo systemctl reload nginx
-        
+
         if [ $? -eq 0 ]; then
             echo "✅ Frontend deployed successfully!"
         else
@@ -124,3 +133,7 @@ echo "🔧 Troubleshooting:"
 echo "  - Check logs: pm2 logs playwright"
 echo "  - Restart server: pm2 restart playwright"
 echo "  - Check port availability: lsof -i :3000"
+echo ""
+echo "💡 Clear browser cache:"
+echo "  - Press: Ctrl+Shift+Delete (Windows/Linux) or Cmd+Shift+Delete (Mac)"
+echo "  - Or use: Ctrl+F5 or Cmd+Shift+R to hard refresh"

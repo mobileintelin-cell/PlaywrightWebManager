@@ -4,7 +4,7 @@ const WebSocket = require('ws');
 async function testWebSocketConnection() {
   console.log('Testing WebSocket connection for Live Logs...\n');
   
-  const ws = new WebSocket('ws://localhost:3001');
+  const ws = new WebSocket('ws://192.168.0.144:3000');
   
   ws.on('open', () => {
     console.log('✅ WebSocket connection established successfully');
