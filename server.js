@@ -3785,3 +3785,6 @@ server.listen(PORT, '0.0.0.0', async () => {
   // Load environment configuration on startup
   await loadEnvironmentConfig();
 });
+server.timeout = 900000;
+server.keepAliveTimeout = 900000;
+server.headersTimeout = 900000;

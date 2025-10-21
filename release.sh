@@ -60,7 +60,33 @@ export PORT=3000
 
 # Start the server using PM2
 echo "🚀 Starting Playwright Web Manager Dashboard server..."
-pm2 start npm --name "playwright" -- run server
+pm2 start npm --name "playwright" -- run server --listen-timeout=900000
+
+# Alternative: Use ecosystem file for better configuration
+# Create ecosystem.config.js if it doesn't exist
+if [ ! -f "ecosystem.config.js" ]; then
+    echo "📝 Creating PM2 ecosystem configuration..."
+    cat > ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [{
+    name: 'playwright',
+    script: 'npm',
+    args: 'run server',
+    env: {
+      PORT: 3000,
+      NODE_ENV: 'production'
+    },
+    node_args: '--max-http-header-size=16000',
+    kill_timeout: 900000,
+    listen_timeout: 900000,
+    max_memory_restart: '1G',
+    instances: 1,
+    exec_mode: 'fork'
+  }]
+};
+EOF
+    echo "✅ Ecosystem configuration created!"
+fi
 
 # Save PM2 configuration
 echo "💾 Saving PM2 configuration..."
