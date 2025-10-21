@@ -9,12 +9,12 @@ The API configuration is located in `src/config/api.ts`:
 ```typescript
 // API Configuration
 // Change this to your server IP address for network access
-export const API_BASE_URL = 'http://192.168.0.144:3001';
-export const WS_BASE_URL = 'ws://192.168.0.144:3001';
+export const API_BASE_URL = 'http://192.168.0.144:3000';
+export const WS_BASE_URL = 'ws://0.0.0.0:3000';
 
 // For development, you can use localhost instead:
-// export const API_BASE_URL = 'http://localhost:3001';
-// export const WS_BASE_URL = 'ws://localhost:3001';
+// export const API_BASE_URL = 'http://localhost:3000';
+// export const WS_BASE_URL = 'ws://localhost:3000';
 ```
 
 ## Benefits
@@ -32,12 +32,12 @@ All components now use the centralized configuration:
 - `ProjectSelectionScreen.tsx` - Project search and creation API calls updated
 
 ## Usage
-1. **For Network Access**: Use your server IP (192.168.0.144:3001)
-2. **For Local Development**: Use localhost:3001
+1. **For Network Access**: Use your server IP (192.168.0.144:3000)
+2. **For Local Development**: Use localhost:3000
 3. **Change Configuration**: Edit `src/config/api.ts` and restart the application
 
 ## Server Requirements
-Make sure your server is accessible on the configured IP address and port. The server should be running on `192.168.0.144:3001` for network access.
+Make sure your server is accessible on the configured IP address and port. The server should be running on `192.168.0.144:3000` for network access.
 
 ## Testing
 You can test the configuration by:
