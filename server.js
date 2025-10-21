@@ -1681,7 +1681,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     const playwrightArgs = [
       'test',
       `--project=${environment}`,
-      `--workers=4`,
+      `--workers=2`,
       // '--reporter=json'
       //not need it
     ];
