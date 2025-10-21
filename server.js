@@ -1702,7 +1702,8 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
         testExecutionOrder.forEach(testCase => {
           const [fileName, testName] = testCase.split(':');
           // Add test file path first, then grep pattern
-          playwrightArgs.push(path.join('tests', fileName), `--grep=${testName}$`);
+          const regex = `(${testName.join('|')})$`;
+          playwrightArgs.push(path.join('tests', fileName), `--grep=${regex}`);
         });
       } else {
         // Execute entire test files
