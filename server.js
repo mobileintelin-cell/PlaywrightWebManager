@@ -1698,13 +1698,22 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     // Add specific test files or individual test cases if selected
     if (selectedTestFiles.length > 0) {
       if (testExecutionOrder && testExecutionOrder.length > 0) {
-        // Execute individual test cases in order
-        testExecutionOrder.forEach(testCase => {
+        // Collect all test names
+        const testNames = testExecutionOrder.map(testCase => {
           const [fileName, testName] = testCase.split(':');
-          // Add test file path first, then grep pattern
-          const regex = `(${testName.join('|')})$`;
-          playwrightArgs.push(path.join('tests', fileName), `--grep=${regex}`);
+          return testName;
         });
+
+        // Create grep pattern with all test names
+        const grepPattern = `(${testNames.join('|')})$`;
+
+        // Add test file paths
+        const testFiles = [...new Set(testExecutionOrder.map(testCase => {
+          const [fileName] = testCase.split(':');
+          return path.join('tests', fileName);
+        }))];
+
+        playwrightArgs.push(...testFiles, `--grep=${grepPattern}`);
       } else {
         // Execute entire test files
         selectedTestFiles.forEach(file => {
