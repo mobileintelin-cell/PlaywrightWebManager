@@ -1681,6 +1681,7 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     const playwrightArgs = [
       'test',
       `--project=${environment}`,
+      `--workers=2`,
       // '--reporter=json'
       //not need it
     ];
@@ -1698,12 +1699,22 @@ app.post('/api/projects/:projectName/run-tests', async (req, res) => {
     // Add specific test files or individual test cases if selected
     if (selectedTestFiles.length > 0) {
       if (testExecutionOrder && testExecutionOrder.length > 0) {
-        // Execute individual test cases in order
-        testExecutionOrder.forEach(testCase => {
+        // Collect all test names
+        const testNames = testExecutionOrder.map(testCase => {
           const [fileName, testName] = testCase.split(':');
-          // Add test file path first, then grep pattern
-          playwrightArgs.push(path.join('tests', fileName), `--grep=${testName}$`);
+          return testName;
         });
+
+        // Create grep pattern with all test names
+        const grepPattern = `(${testNames.join('|')})$`;
+
+        // Add test file paths
+        const testFiles = [...new Set(testExecutionOrder.map(testCase => {
+          const [fileName] = testCase.split(':');
+          return path.join('tests', fileName);
+        }))];
+
+        playwrightArgs.push(...testFiles, `--grep=${grepPattern}`);
       } else {
         // Execute entire test files
         selectedTestFiles.forEach(file => {
@@ -3774,3 +3785,6 @@ server.listen(PORT, '0.0.0.0', async () => {
   // Load environment configuration on startup
   await loadEnvironmentConfig();
 });
+server.timeout = 900000;
+server.keepAliveTimeout = 900000;
+server.headersTimeout = 900000;
